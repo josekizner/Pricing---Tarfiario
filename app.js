@@ -226,7 +226,7 @@ let appOperational = [];
 Object.defineProperty(window, 'appOperational', { get: () => appOperational, set: (v) => { appOperational = v; }, configurable: true });
 let appComercial = [];
 Object.defineProperty(window, 'appComercial', { get: () => appComercial, set: (v) => { appComercial = v; }, configurable: true });
-let activeDb = "all";
+let activeDb = "apiAll";
 let filteredRates = [];
 let currentPage = 1;
 let rowsPerPage = 25;
@@ -1495,11 +1495,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Scan and build dynamic categories from loaded observations database
     window.populateObsCategoryDropdown();
     
-    // Auto-switch to operational tab if no custom Excel rates uploaded yet
-    if (appRates.length === 0 && appSpace.length === 0 && (appOperational.length > 0 || appComercial.length > 0)) {
-        activeDb = "operational";
-        document.querySelectorAll('.db-pill-btn').forEach(btn => {
-            if (btn.getAttribute('data-db') === 'operational') btn.classList.add('active');
+    // Auto-switch to Oper. + Comercial tab if no custom Excel rates uploaded yet
+    if (appRates.length === 0 && appSpace.length === 0) {
+        activeDb = "apiAll";
+        document.querySelectorAll('.db-btn').forEach(btn => {
+            if (btn.getAttribute('data-db') === 'apiAll') btn.classList.add('active');
             else btn.classList.remove('active');
         });
     }
