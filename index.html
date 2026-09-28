@@ -1,0 +1,2100 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            const errDiv = document.createElement('div');
+            errDiv.style.position = 'fixed';
+            errDiv.style.top = '0';
+            errDiv.style.left = '0';
+            errDiv.style.width = '100%';
+            errDiv.style.backgroundColor = '#ef4444';
+            errDiv.style.color = '#ffffff';
+            errDiv.style.padding = '16px';
+            errDiv.style.zIndex = '999999';
+            errDiv.style.fontFamily = 'sans-serif';
+            errDiv.style.fontSize = '14px';
+            errDiv.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            errDiv.innerHTML = '<strong>🚨 Erro de Script Detectado:</strong> ' + message + 
+                               '<br><span style="font-size:12px;opacity:0.9;">Origem: ' + source + 
+                               ' | Linha: ' + lineno + ' | Coluna: ' + colno + '</span>';
+            document.body.insertBefore(errDiv, document.body.firstChild);
+            return false;
+        };
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mond Shipping - Tarifário de Fretes Inteligente</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- SheetJS (Excel parser) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Chart.js for performance timeline -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css?v=20260713_1510">
+</head>
+<body>
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header class="main-header">
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <i data-lucide="ship"></i>
+                </div>
+                <div class="logo-text">
+                    <h1>Mond <span>Shipping</span></h1>
+                    <p>Portal Interno de Tarifas & Fretes</p>
+                </div>
+            </div>
+            
+            <div class="header-actions">
+                <div class="sync-btn-wrapper">
+                    <button id="btn-sync-api" class="btn btn-secondary btn-icon-text btn-sync" title="Sincronizar dados da API Operacional">
+                        <i data-lucide="refresh-cw"></i>
+                        <span>Sincronizar Operacional</span>
+                    </button>
+                    <span class="sync-timestamp" id="sync-ts-operational">Nunca sincronizado</span>
+                </div>
+                <div class="sync-btn-wrapper">
+                    <button id="btn-sync-comercial" class="btn btn-secondary btn-icon-text btn-sync" title="Sincronizar dados da API Comercial">
+                        <i data-lucide="refresh-cw"></i>
+                        <span>Sincronizar Comercial</span>
+                    </button>
+                    <span class="sync-timestamp" id="sync-ts-commercial">Nunca sincronizado</span>
+                </div>
+                <button id="btn-toggle-upload" class="btn btn-secondary btn-icon-text">
+                    <i data-lucide="upload-cloud"></i>
+                    <span>Atualizar Planilha</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="app-tabs">
+            <button class="tab-link active" data-tab="search-tab-panel">
+                <i data-lucide="search"></i>
+                <span>Painel de Consulta</span>
+            </button>
+            <button class="tab-link" id="analysis-tab-link" data-tab="analysis-tab-panel">
+                <i data-lucide="line-chart"></i>
+                <span>Recompra de Fretes</span>
+            </button>
+            <button class="tab-link" id="builder-tab-link" data-tab="builder-tab-panel">
+                <i data-lucide="file-plus-2"></i>
+                <span>Criar Tarifário / Space</span>
+            </button>
+            <button class="tab-link" id="dashboard-tab-link" data-tab="dashboard-tab-panel">
+                <i data-lucide="bar-chart-3"></i>
+                <span>Dashboard por Agente</span>
+            </button>
+            <button class="tab-link" id="intel-tab-link" data-tab="intel-tab-panel">
+                <i data-lucide="brain-circuit"></i>
+                <span>Mond AI Board</span>
+            </button>
+        </nav>
+
+        <!-- Search Panel Tab Wrapper -->
+        <div id="search-tab-panel" class="tab-panel">
+        
+        <!-- Dynamic Dropzone Wrapper -->
+        <section id="upload-section" class="upload-section card collapsed">
+            <div class="card-header">
+                <h2><i data-lucide="file-spreadsheet"></i> Atualizar Banco de Tarifas</h2>
+                <button id="btn-close-upload" class="btn-close">&times;</button>
+            </div>
+            <div class="card-body">
+                <div id="dropzone" class="dropzone">
+                    <input type="file" id="file-input" accept=".csv, .xlsx, .xls" hidden>
+                    <div class="dropzone-content">
+                        <div class="dropzone-icon">
+                            <i data-lucide="cloud-lightning"></i>
+                        </div>
+                        <h3>Arraste sua planilha aqui</h3>
+                        <p>Suporta arquivos do Excel (<code>.xlsx</code>, <code>.xls</code>) ou <code>.csv</code></p>
+                        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                            Selecionar Arquivo
+                        </button>
+                    </div>
+                </div>
+                <div id="upload-status" class="upload-status hidden">
+                    <div class="spinner"></div>
+                    <span id="status-message">Processando planilha...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Stats / Opportunities Cards -->
+        <section class="opportunities-grid">
+            
+            <!-- Opportunity Card 1: Best rate -->
+            <div class="opportunity-card progress-glow" id="card-cheapest">
+                <div class="card-glow-bg"></div>
+                <div class="card-icon blue">
+                    <i data-lucide="trending-down"></i>
+                </div>
+                <div class="card-info">
+                    <span class="card-label">Melhor Frete Encontrado</span>
+                    <h3 class="card-value" id="cheapest-val">-</h3>
+                    <p class="card-meta" id="cheapest-route">Carregue uma planilha</p>
+                </div>
+            </div>
+
+            <!-- Opportunity Card 2: Highest free time -->
+            <div class="opportunity-card progress-glow" id="card-freetime">
+                <div class="card-glow-bg"></div>
+                <div class="card-icon green">
+                    <i data-lucide="calendar"></i>
+                </div>
+                <div class="card-info">
+                    <span class="card-label">Maior Free Time</span>
+                    <h3 class="card-value" id="freetime-val">-</h3>
+                    <p class="card-meta" id="freetime-route">Carregue uma planilha</p>
+                </div>
+            </div>
+
+            <!-- Opportunity Card 3: AI Insights / Highlight -->
+            <div class="opportunity-card progress-glow" id="card-opportunity">
+                <div class="card-glow-bg"></div>
+                <div class="card-icon purple">
+                    <i data-lucide="sparkles"></i>
+                </div>
+                <div class="card-info">
+                    <span class="card-label">Destaque de Rota (IA)</span>
+                    <h3 class="card-value" id="insight-title">-</h3>
+                    <p class="card-meta" id="insight-desc">Dica de negócio da Mond</p>
+                </div>
+            </div>
+
+            <!-- Opportunity Card 4: Summary -->
+            <div class="opportunity-card progress-glow" id="card-summary">
+                <div class="card-glow-bg"></div>
+                <div class="card-icon gold">
+                    <i data-lucide="database"></i>
+                </div>
+                <div class="card-info">
+                    <span class="card-label">Banco de Dados Ativo</span>
+                    <h3 class="card-value" id="summary-total">0 tarifas</h3>
+                    <p class="card-meta" id="summary-validity">Validade atualizada</p>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Main Query Section -->
+        <main class="query-section">
+            
+            <!-- Smart Search & Filters Bar -->
+            <div class="search-container card">
+                
+                <!-- NLP Search removed -->
+                <div class="nlp-search-box" style="display:none">
+                    <input type="text" id="nlp-input" autocomplete="off">
+                    <button id="btn-clear-search"></button>
+                </div>
+
+                <!-- Database source selector segment -->
+                <div class="db-selector-wrapper">
+                    <span class="db-selector-label">Exibir do banco:</span>
+                    <div class="db-selector" id="db-selector">
+                        <button class="db-btn active" data-db="all">
+                            <i data-lucide="layers"></i>
+                            <span>Tarifário + Space</span>
+                        </button>
+                        <button class="db-btn" data-db="rate">
+                            <i data-lucide="file-spreadsheet"></i>
+                            <span>Tarifário de Fretes</span>
+                        </button>
+                        <button class="db-btn" data-db="space">
+                            <i data-lucide="package"></i>
+                            <span>Space on Hands</span>
+                        </button>
+                        <button class="db-btn" data-db="apiAll">
+                            <i data-lucide="database"></i>
+                            <span>Oper. + Comercial</span>
+                        </button>
+                        <button class="db-btn" data-db="operational">
+                            <i data-lucide="trending-up"></i>
+                            <span>Massa Operacional</span>
+                        </button>
+                        <button class="db-btn" data-db="commercial">
+                            <i data-lucide="landmark"></i>
+                            <span>Massa Comercial</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Main Filters -->
+                <div class="advanced-filters">
+                    <div class="filter-group autocomplete-container">
+                        <label for="filter-origem">Origem</label>
+                        <input type="text" id="filter-origem" placeholder="Pesquisar origem" autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-origem"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container">
+                        <label for="filter-destino">Destino</label>
+                        <input type="text" id="filter-destino" placeholder="Pesquisar destino" autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-destino"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container">
+                        <label for="filter-container">Tipo Container</label>
+                        <input type="text" id="filter-container" placeholder="Pesquisar tipo" autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-container"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container">
+                        <label for="filter-armador">Armador</label>
+                        <input type="text" id="filter-armador" placeholder="Pesquisar armador" autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-armador"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-pais-origem" style="display: none;">
+                        <label for="filter-pais-origem">País Origem</label>
+                        <input type="text" id="filter-pais-origem" placeholder="Pesquisar país" autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-pais-origem"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-cliente" style="display: none;">
+                        <label for="filter-cliente">Cliente</label>
+                        <input type="text" id="filter-cliente" placeholder="Pesquisar cliente..." autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-cliente"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-agente" style="display: none;">
+                        <label for="filter-agente-top">Agente</label>
+                        <input type="text" id="filter-agente-top" placeholder="Pesquisar agente..." autocomplete="off">
+                        <div class="autocomplete-suggestions hidden" id="suggestions-agente-top"></div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-validade">
+                        <label for="filter-validade-date">Validade</label>
+                        <button type="button" id="btn-validade-filter" class="validade-filter-btn">
+                            <span id="validade-filter-label">Todas as datas</span>
+                            <i data-lucide="chevron-down" style="width:14px;height:14px"></i>
+                        </button>
+                        <div class="validade-dropdown hidden" id="validade-dropdown">
+                            <div class="validade-dropdown-header">
+                                <button type="button" class="btn-select-all" id="validade-select-all">Marcar Todas</button>
+                                <button type="button" class="btn-select-all" id="validade-deselect-all">Desmarcar Todas</button>
+                            </div>
+                            <div class="validade-options" id="validade-options">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-obs-category">
+                        <label>Tipo de Carga</label>
+                        <button type="button" id="btn-obs-filter" class="validade-filter-btn">
+                            <span id="obs-filter-label">Todas ▼</span>
+                            <i data-lucide="chevron-down" style="width:14px;height:14px"></i>
+                        </button>
+                        <div class="validade-dropdown hidden" id="obs-dropdown">
+                            <div class="validade-dropdown-header">
+                                <button type="button" class="btn-select-all" id="obs-select-all">Marcar Todas</button>
+                                <button type="button" class="btn-select-all" id="obs-deselect-all">Desmarcar Todas</button>
+                            </div>
+                            <div class="validade-options" id="obs-options">
+                                <label class="validade-option"><input type="checkbox" value="geral" checked> 📦 Sem Restrição</label>
+                                <label class="validade-option"><input type="checkbox" value="nac" checked> 🔒 NAC</label>
+                                <label class="validade-option"><input type="checkbox" value="pneu" checked> 🚗 Pneus / Auto</label>
+                                <label class="validade-option"><input type="checkbox" value="textil" checked> 👕 Têxtil</label>
+                                <label class="validade-option"><input type="checkbox" value="ows" checked> ⚖️ OWS</label>
+                                <label class="validade-option"><input type="checkbox" value="promo" checked> ⚡ Spot / Promo</label>
+                                <label class="validade-option"><input type="checkbox" value="custom-maquina" checked> ⚙️ Máquinas</label>
+                                <label class="validade-option"><input type="checkbox" value="custom-imo" checked> ☣️ IMO</label>
+                                <label class="validade-option"><input type="checkbox" value="custom-bateria" checked> 🔋 Bateria</label>
+                                <label class="validade-option"><input type="checkbox" value="custom-reefer" checked> ❄️ Reefer</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-group" id="filter-group-abertura" style="display: none;">
+                        <label>Período de Abertura</label>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                            <input type="date" id="filter-abertura-de" style="padding: 8px 10px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-primary); font-size: 0.8rem; width: 140px;">
+                            <span style="color: var(--text-muted); font-size: 0.75rem;">até</span>
+                            <input type="date" id="filter-abertura-ate" style="padding: 8px 10px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-primary); font-size: 0.8rem; width: 140px;">
+                        </div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-fase" style="display: none;">
+                        <label>Fase</label>
+                        <button type="button" id="btn-fase-filter" class="validade-filter-btn">
+                            <span id="fase-filter-label">Todas as Fases</span>
+                            <i data-lucide="chevron-down" style="width:14px;height:14px"></i>
+                        </button>
+                        <div class="validade-dropdown hidden" id="fase-dropdown">
+                            <div class="validade-dropdown-header">
+                                <button type="button" class="btn-select-all" id="fase-select-all">Marcar Todas</button>
+                                <button type="button" class="btn-select-all" id="fase-deselect-all">Desmarcar Todas</button>
+                            </div>
+                            <div class="validade-options" id="fase-options">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-situacao" style="display: none;">
+                        <label>Situação</label>
+                        <button type="button" id="btn-situacao-filter" class="validade-filter-btn">
+                            <span id="situacao-filter-label">Aberto</span>
+                            <i data-lucide="chevron-down" style="width:14px;height:14px"></i>
+                        </button>
+                        <div class="validade-dropdown hidden" id="situacao-dropdown">
+                            <div class="validade-dropdown-header">
+                                <button type="button" class="btn-select-all" id="situacao-select-all">Marcar Todos</button>
+                                <button type="button" class="btn-select-all" id="situacao-deselect-all">Desmarcar Todos</button>
+                            </div>
+                            <div class="validade-options" id="situacao-options">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-group autocomplete-container" id="filter-group-status" style="display: none;">
+                        <label>Status/Análise</label>
+                        <button type="button" id="btn-status-filter" class="validade-filter-btn">
+                            <span id="status-filter-label">Todos os Status</span>
+                            <i data-lucide="chevron-down" style="width:14px;height:14px"></i>
+                        </button>
+                        <div class="validade-dropdown hidden" id="status-dropdown">
+                            <div class="validade-dropdown-header">
+                                <button type="button" class="btn-select-all" id="status-select-all">Marcar Todos</button>
+                                <button type="button" class="btn-select-all" id="status-deselect-all">Desmarcar Todos</button>
+                            </div>
+                            <div class="validade-options" id="status-options">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-group" style="display:none">
+                        <select id="filter-validade">
+                            <option value="todas" selected>Todas as tarifas</option>
+                        </select>
+                    </div>
+                    <div class="filter-group" id="filter-group-freight-target">
+                        <label for="filter-frete-target">Frete Alvo (USD)</label>
+                        <input type="number" id="filter-frete-target" placeholder="Ex: 2500" step="100" min="0" style="padding: 8px 12px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-primary); font-size: 0.8rem; width: 130px;">
+                    </div>
+                    <div class="filter-group button-group" style="display:flex; gap:6px; align-items:flex-end;">
+                        <button id="btn-reset-filters" class="btn btn-text btn-icon-text" style="height:36px;">
+                            <i data-lucide="rotate-ccw"></i>
+                            <span>Limpar</span>
+                        </button>
+                        <button id="btn-analyze-freight-top" class="btn btn-primary btn-icon-text" style="height:36px; background: var(--primary, #004b87); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 500; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                            <i data-lucide="calculator" style="width:14px; height:14px;"></i>
+                            <span>Analisar Frete</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NLP Chips hidden -->
+            <div id="nlp-chips-container" class="nlp-chips-container hidden" style="display:none">
+                <div id="nlp-chips" class="chips-list"></div>
+            </div>
+
+            <!-- Table Results Section -->
+            <div class="results-container card">
+                <!-- Old overlay removed - using non-blocking toast notifications instead -->
+                <div class="results-header">
+                    <div class="results-title">
+                        <h2>Resultados da Consulta</h2>
+                        <span id="results-count" class="badge badge-info">0 encontrados</span>
+                        <button class="btn btn-secondary" id="btn-auto-outliers" onclick="autoDeselectOutliers()" title="Desmarcar automaticamente fretes fora da curva (outliers)" style="padding: 5px 10px; font-size: 0.78rem; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; margin-left: 4px;">
+                            <i data-lucide="filter-x" style="width:14px;height:14px;"></i>
+                            <span>Remover Outliers</span>
+                        </button>
+                        <button class="btn btn-export" onclick="exportSearchResults()" title="Exportar resultados da tabela para CSV">
+                            <i data-lucide="download"></i>
+                            <span>Exportar</span>
+                        </button>
+                    </div>
+                    <div class="results-actions" style="display:none">
+                        <div class="validity-pills" id="validity-pills">
+                            <button class="pill-btn active" data-value="todas">Todas</button>
+                        </div>
+                        <div class="sort-selector">
+                            <select id="sort-by">
+                                <option value="Vl. Frete-asc">Menor Frete (USD)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analytics Dashboard (Operational / Commercial only) -->
+                <div id="analytics-dashboard" class="analytics-dashboard" style="display: none;">
+                    <div class="analytics-dashboard-header">
+                        <h3><i data-lucide="bar-chart-3" style="width:18px;height:18px;"></i> Painel Analítico</h3>
+                        <button class="btn btn-secondary btn-export" id="btn-export-analytics" title="Exportar rankings do painel analítico">
+                            <i data-lucide="download" style="width:14px;height:14px;"></i>
+                            <span>Exportar</span>
+                        </button>
+                    </div>
+                    <div class="analytics-grid" id="analytics-grid">
+                        <!-- Top Clientes -->
+                        <div class="ranking-card card" id="ranking-clientes">
+                            <div class="ranking-header">
+                                <h4>Top Clientes</h4>
+                                <span class="ranking-subtitle ranking-sort-toggle" data-sort="cntrs" title="Clique para alternar ordenação">Ordenar: <b class="ranking-sort-active">cntrs</b> | <b>proc</b> | <b>mc</b></span>
+                            </div>
+                            <div class="ranking-list" id="ranking-clientes-list"></div>
+                        </div>
+                        <!-- Top Rotas -->
+                        <div class="ranking-card card" id="ranking-rotas">
+                            <div class="ranking-header">
+                                <h4>Top Rotas</h4>
+                                <span class="ranking-subtitle ranking-sort-toggle" data-sort="cntrs" title="Clique para alternar ordenação">Ordenar: <b class="ranking-sort-active">cntrs</b> | <b>proc</b> | <b>mc</b></span>
+                            </div>
+                            <div class="ranking-list" id="ranking-rotas-list"></div>
+                        </div>
+                        <!-- Top Agentes -->
+                        <div class="ranking-card card" id="ranking-agentes">
+                            <div class="ranking-header">
+                                <h4>Top Agentes</h4>
+                                <span class="ranking-subtitle ranking-sort-toggle" data-sort="cntrs" title="Clique para alternar ordenação">Ordenar: <b class="ranking-sort-active">cntrs</b> | <b>proc</b> | <b>mc</b></span>
+                            </div>
+                            <div class="ranking-list" id="ranking-agentes-list"></div>
+                        </div>
+                        <!-- Top Armadores -->
+                        <div class="ranking-card card" id="ranking-armadores">
+                            <div class="ranking-header">
+                                <h4>Top Fornecedores de Frete</h4>
+                                <span class="ranking-subtitle ranking-sort-toggle" data-sort="cntrs" title="Clique para alternar ordenação">Ordenar: <b class="ranking-sort-active">cntrs</b> | <b>proc</b> | <b>mc</b></span>
+                            </div>
+                            <div class="ranking-list" id="ranking-armadores-list"></div>
+                        </div>
+                        <!-- Frete Médio -->
+                        <div class="ranking-card card" id="ranking-frete-medio">
+                            <div class="ranking-header">
+                                <h4>Frete Médio</h4>
+                                <span class="ranking-subtitle">Compra vs Venda por container</span>
+                            </div>
+                            <div class="ranking-list" id="ranking-frete-medio-list"></div>
+                        </div>
+                        <!-- Route Detail Card (hidden until route is clicked) -->
+                        <div class="ranking-card card route-detail-card" id="route-detail-card" style="display: none;">
+                            <div class="ranking-header">
+                                <h4 id="route-detail-title">Fretes da Rota</h4>
+                                <span class="ranking-subtitle" id="route-detail-subtitle">Compra vs Venda recentes</span>
+                                <div style="display:flex;gap:6px;position:absolute;top:4px;right:4px;align-items:center;">
+                                    <button class="btn btn-export btn-export-route" title="Exportar fretes da rota" style="font-size:0.6rem;padding:2px 6px;">
+                                        <i data-lucide="download" style="width:11px;height:11px;"></i>
+                                        <span>CSV</span>
+                                    </button>
+                                    <button class="route-detail-close" id="route-detail-close" title="Fechar">&times;</button>
+                                </div>
+                            </div>
+                            <div class="route-detail-body" id="route-detail-body"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Timeline (inline, between rankings and table) -->
+                <div id="performance-timeline-inline" class="card" style="display:none; margin-bottom:16px; padding:20px 24px; background:var(--bg-card); border:1px solid var(--border); border-radius:12px; max-height:320px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h4 id="perf-timeline-title-inline" style="margin:0; font-size:1rem; color:var(--text);">📊 Performance</h4>
+                        <button onclick="document.getElementById('performance-timeline-inline').style.display='none'" style="background:none; border:none; color:var(--text-muted); font-size:1.2rem; cursor:pointer; padding:2px 8px; border-radius:6px;" title="Fechar">✕</button>
+                    </div>
+                    <div style="height:240px; position:relative;">
+                        <canvas id="perf-timeline-canvas-inline"></canvas>
+                    </div>
+                </div>
+
+                <!-- Freight Analyzer Results (placed above table) -->
+                <div id="top-analyzer-results" class="card" style="display: none; margin-bottom: 16px; padding: 16px; background: var(--bg-secondary);">
+                    <!-- Loaded dynamically -->
+                </div>
+
+                <div class="table-responsive">
+                    <table class="rates-table" id="rates-table">
+                        <thead>
+                            <tr class="header-row">
+                                <th class="text-center" style="width: 36px; min-width: 36px; padding: 4px;" title="Marcar/Desmarcar Todos">
+                                    <input type="checkbox" id="chk-select-all-rows" checked title="Marcar/Desmarcar Todos os registros para o painel analítico" style="cursor: pointer; width: 15px; height: 15px; accent-color: var(--primary);" onchange="toggleSelectAllRows(this.checked)">
+                                </th>
+                                <th class="sortable col-filterable" data-sort="origem" data-field="origem" style="width: 120px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Origem</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="origem" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="origem"></div>
+                                </th>
+                                <th class="sortable col-filterable" data-sort="destino" data-field="destino" style="width: 120px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Destino</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="destino" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="destino"></div>
+                                </th>
+                                <th class="sortable text-center" data-sort="qtd" style="width: 45px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Qtd</span>
+                                        <span class="sort-icon"></span>
+                                    </div>
+                                </th>
+                                <th class="sortable col-filterable" data-sort="container" data-field="container" style="width: 110px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Container</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="container" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="container"></div>
+                                </th>
+                                <th class="sortable col-filterable" data-sort="armador" data-field="armador" style="width: 130px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Armador</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="armador" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="armador"></div>
+                                </th>
+                                <th class="sortable col-filterable" data-sort="agente" data-field="agente" style="width: 170px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Agente</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="agente" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="agente"></div>
+                                </th>
+                                <th class="sortable col-filterable col-cliente" data-sort="cliente" data-field="cliente" style="width: 150px; display: none;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Cliente</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="cliente" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="cliente"></div>
+                                </th>
+                                <th class="sortable text-right" data-sort="valor" style="width: 100px;">
+                                    <div class="th-header-row"><span class="th-label">Valor</span><span class="sort-icon"></span></div>
+                                </th>
+                                <th class="sortable col-filterable text-center" data-sort="freetime" data-field="freetime" style="width: 70px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Free Time</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="freetime" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="freetime"></div>
+                                </th>
+                                <th class="sortable col-filterable text-center" data-sort="fim" data-field="fim" id="th-validade" style="width: 90px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Validade</span>
+                                        <span class="sort-icon"></span>
+                                        <button class="col-filter-toggle" data-field="fim" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="fim"></div>
+                                </th>
+                                <th class="sortable text-center col-etd" data-sort="previsaoEmbarque" style="width: 90px; display: none;">
+                                    <div class="th-header-row"><span class="th-label">ETD</span><span class="sort-icon"></span></div>
+                                </th>
+                                <th class="sortable text-center col-eta" data-sort="previsaoAtracacao" style="width: 90px; display: none;">
+                                    <div class="th-header-row"><span class="th-label">ETA</span><span class="sort-icon"></span></div>
+                                </th>
+                                <th class="text-center col-fase" style="width: 120px; display: none;">
+                                    <div class="th-header-row"><span class="th-label">Fase</span></div>
+                                </th>
+                                <th class="col-filterable" data-field="obs" style="width: 140px;">
+                                    <div class="th-header-row">
+                                        <span class="th-label">Obs.</span>
+                                        <button class="col-filter-toggle" data-field="obs" title="Filtrar"><i data-lucide="filter" style="width:12px;height:12px"></i></button>
+                                    </div>
+                                    <div class="col-filter-dropdown hidden" data-field="obs"></div>
+                                </th>
+                                <th class="text-center" style="width: 80px;">Ações</th>
+                            </tr>
+                        </thead>
+                        <!-- Hidden col-filter inputs to keep JS references working -->
+                        <div style="display:none">
+                            <input type="text" id="col-filter-origem">
+                            <input type="text" id="col-filter-destino">
+                            <input type="text" id="col-filter-container">
+                            <input type="text" id="col-filter-armador">
+                            <input type="text" id="col-filter-agente">
+                            <input type="text" id="col-filter-freetime">
+                            <input type="text" id="col-filter-fim">
+                            <input type="text" id="col-filter-obs">
+                        </div>
+                        <tbody id="table-body">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty State -->
+                <div id="empty-state" class="empty-state">
+                    <div class="empty-icon">
+                        <i data-lucide="search-code"></i>
+                    </div>
+                    <h3>Nenhuma tarifa encontrada</h3>
+                    <p>Tente alterar seus filtros ou faça uma nova busca inteligente.</p>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination-container" id="pagination-container">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <span class="pagination-info" id="pagination-info">Mostrando 1 a 25 de 100</span>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <label for="rows-per-page" style="font-size: 0.78rem; color: var(--text-secondary); white-space: nowrap;">Linhas:</label>
+                            <select id="rows-per-page" style="padding: 4px 8px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-primary); font-size: 0.78rem; cursor: pointer;">
+                                <option value="10">10</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button id="btn-prev-page" class="btn btn-circle-small" title="Página Anterior">
+                            <i data-lucide="chevron-left"></i>
+                        </button>
+                        <div id="page-numbers" class="page-numbers">
+                            <!-- Dynamic page buttons -->
+                        </div>
+                        <button id="btn-next-page" class="btn btn-circle-small" title="Próxima Página">
+                            <i data-lucide="chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+        </div> <!-- End Search Panel Tab Wrapper -->
+
+        <!-- Intel Tab Panel -->
+        <div id="intel-tab-panel" class="tab-panel hidden">
+            <style>
+                .ai-board-container {
+                    display: flex;
+                    gap: 20px;
+                    height: calc(100vh - 180px);
+                    min-height: 650px;
+                    margin-top: 10px;
+                }
+                .ai-board-chat-pane {
+                    flex: 1.1;
+                    display: flex;
+                    flex-direction: column;
+                    height: 100%;
+                    background: var(--card-bg);
+                    border: 1px solid var(--card-border);
+                    border-radius: 12px;
+                    overflow: hidden;
+                }
+                .ai-board-chat-body {
+                    flex: 1;
+                    padding: 20px;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 16px;
+                    background: var(--bg-primary);
+                }
+                .ai-board-chat-quick-actions {
+                    display: flex;
+                    gap: 8px;
+                    padding: 10px 20px;
+                    background: var(--bg-secondary);
+                    border-top: 1px solid var(--card-border);
+                    overflow-x: auto;
+                    white-space: nowrap;
+                    flex-wrap: nowrap;
+                    scrollbar-width: thin;
+                }
+                .ai-board-chat-quick-actions::-webkit-scrollbar {
+                    height: 4px;
+                }
+                .ai-board-chat-quick-actions::-webkit-scrollbar-thumb {
+                    background: var(--card-border);
+                    border-radius: 2px;
+                }
+                .ai-board-chat-quick-actions::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .ai-board-chat-quick-actions .chip {
+                    flex-shrink: 0;
+                    background: var(--card-bg);
+                    border: 1px solid var(--card-border);
+                    color: var(--text-primary);
+                    padding: 6px 14px;
+                    border-radius: 16px;
+                    font-size: 0.75rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    font-weight: 500;
+                }
+                .ai-board-chat-quick-actions .chip:hover {
+                    background: var(--primary);
+                    color: #fff;
+                    border-color: var(--primary);
+                }
+                .ai-board-chat-input-area {
+                    padding: 16px;
+                    background: var(--bg-secondary);
+                    border-top: 1px solid var(--card-border);
+                    display: flex;
+                    gap: 12px;
+                    align-items: center;
+                    border-bottom-left-radius: 12px;
+                    border-bottom-right-radius: 12px;
+                }
+                .ai-board-chat-input-area textarea {
+                    flex: 1;
+                    padding: 10px 14px;
+                    border-radius: 6px;
+                    border: 1px solid var(--card-border);
+                    background: var(--bg-primary);
+                    color: var(--text-primary);
+                    font-size: 0.85rem;
+                    resize: none;
+                    height: 50px;
+                    font-family: inherit;
+                    line-height: 1.4;
+                }
+                .ai-board-chat-input-area textarea:focus {
+                    outline: none;
+                    border-color: var(--primary);
+                }
+                .ai-board-tools-pane {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 20px;
+                    height: 100%;
+                }
+                .ai-board-kanban {
+                    flex: 1.3;
+                    display: flex;
+                    flex-direction: column;
+                    background: var(--card-bg);
+                    border: 1px solid var(--card-border);
+                    border-radius: 12px;
+                    overflow: hidden;
+                }
+                .kanban-columns {
+                    display: flex;
+                    gap: 12px;
+                    padding: 12px;
+                    flex: 1;
+                    overflow-x: auto;
+                    background: var(--bg-primary);
+                }
+                .kanban-column {
+                    flex: 1;
+                    min-width: 140px;
+                    background: var(--bg-secondary);
+                    border-radius: 8px;
+                    border: 1px solid var(--card-border);
+                    display: flex;
+                    flex-direction: column;
+                    padding: 10px;
+                }
+                .kanban-column-header {
+                    font-size: 0.75rem;
+                    font-weight: 700;
+                    color: var(--text-secondary);
+                    text-transform: uppercase;
+                    margin-bottom: 10px;
+                    padding-bottom: 6px;
+                    border-bottom: 2px solid var(--card-border);
+                    text-align: center;
+                }
+                .kanban-cards-list {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    overflow-y: auto;
+                    min-height: 150px;
+                }
+                .kanban-card {
+                    background: var(--card-bg);
+                    border: 1px solid var(--card-border);
+                    border-radius: 6px;
+                    padding: 12px;
+                    font-size: 0.775rem;
+                    cursor: grab;
+                    position: relative;
+                    transition: transform 0.2s, box-shadow 0.2s;
+                    word-break: break-word;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }
+                .kanban-card:active {
+                    cursor: grabbing;
+                    transform: scale(0.98);
+                }
+                .kanban-card-title {
+                    font-weight: 600;
+                    color: var(--text-primary);
+                    margin-bottom: 6px;
+                    padding-right: 16px;
+                }
+                .kanban-card-text {
+                    color: var(--text-secondary);
+                    font-size: 0.725rem;
+                    line-height: 1.4;
+                }
+                .kanban-card-delete {
+                    position: absolute;
+                    top: 8px;
+                    right: 8px;
+                    color: var(--text-muted);
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                    font-size: 0.85rem;
+                    display: none;
+                    line-height: 1;
+                    padding: 2px;
+                }
+                .kanban-card:hover .kanban-card-delete {
+                    display: block;
+                }
+                .kanban-card-delete:hover {
+                    color: #ef4444;
+                }
+                .ai-board-sketchpad {
+                    flex: 0.9;
+                    display: flex;
+                    flex-direction: column;
+                    background: var(--card-bg);
+                    border: 1px solid var(--card-border);
+                    border-radius: 12px;
+                    overflow: hidden;
+                }
+                .sketchpad-body {
+                    padding: 10px;
+                    flex: 1;
+                    background: var(--bg-primary);
+                    position: relative;
+                }
+                .save-insight-btn {
+                    margin-top: 8px;
+                    background: rgba(59, 130, 246, 0.1);
+                    border: 1px solid var(--primary);
+                    color: var(--primary);
+                    padding: 4px 10px;
+                    border-radius: 4px;
+                    font-size: 0.7rem;
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    transition: all 0.2s;
+                    font-weight: 600;
+                }
+                .save-insight-btn:hover {
+                    background: var(--primary);
+                    color: #fff;
+                }
+            </style>
+            
+            <div class="ai-board-container">
+                <!-- Left Pane: AI Chat -->
+                <div class="ai-board-chat-pane">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; padding:12px 20px; flex-wrap:wrap; gap:10px;">
+                        <h2 style="margin:0; font-size:1.05rem; font-weight:600; display:flex; align-items:center; gap:8px;">
+                            <i data-lucide="bot" style="color:var(--primary); width:20px; height:20px;"></i> 
+                            Mond AI Chat Sênior
+                        </h2>
+                        
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <label style="font-size:0.75rem; color:var(--text-secondary); margin:0;">Histórico:</label>
+                            <select id="select-ai-chat-sessions" class="select-sort" style="width:150px; padding:4px 8px; font-size:0.75rem; margin:0;" onchange="window.switchChatSession(this.value)">
+                                <option value="current">Conversa Atual</option>
+                            </select>
+                            
+                            <button class="btn btn-secondary btn-sm" onclick="window.saveCurrentChatSession()" style="margin:0; padding:4px 8px; font-size:0.75rem; display:flex; align-items:center; gap:4px;" title="Salvar conversa atual">
+                                <i data-lucide="save" style="width:14px;height:14px;"></i> Salvar
+                            </button>
+                            
+                            <button id="btn-delete-chat-session" class="btn btn-secondary btn-sm" onclick="window.deleteChatSession()" style="margin:0; padding:4px 8px; font-size:0.75rem; display:none; align-items:center; gap:4px; color:#ef4444;" title="Excluir conversa selecionada">
+                                <i data-lucide="trash" style="width:14px;height:14px;"></i> Excluir
+                            </button>
+                            
+                            <button class="btn btn-secondary btn-sm" onclick="window.clearAiBoardChat()" style="margin:0; padding:4px 8px; font-size:0.75rem; display:flex; align-items:center; gap:4px;" title="Limpar conversa ativa">
+                                <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Limpar
+                            </button>
+                            
+                            <button class="btn btn-secondary btn-sm" onclick="window.configureGeminiApiKey()" style="margin:0; padding:4px 8px; font-size:0.75rem; display:flex; align-items:center; gap:4px;" title="Configurar chave API do Gemini">
+                                <i data-lucide="key" style="width:14px;height:14px;"></i> Chave API
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="ai-board-chat-body" id="ai-board-chat-messages">
+                        <div class="ai-message bot">
+                            Olá! Este é o seu espaço de trabalho expandido. 
+                            Aqui você tem o modelo **Gemini 3.1 Pro** com contexto integral de toda a listagem ativa. 
+                            Você pode me fazer perguntas profundas sobre rotas, spreads, agentes e armadores, e salvar insights ou criar cards diretamente no Kanban ao lado.
+                            <span class="ai-message-time">Agora</span>
+                        </div>
+                        
+                        <div class="ai-typing-indicator" id="ai-board-chat-typing">
+                            <div class="ai-typing-dot"></div>
+                            <div class="ai-typing-dot"></div>
+                            <div class="ai-typing-dot"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="ai-board-chat-quick-actions">
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Com base nos fretes ativos, qual agente tem o menor frete médio de compra e o melhor free time?')">📊 Métricas de Agentes</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Quais rotas no banco de dados apresentam o maior spread (diferença entre compra e venda) e quais agentes lideram essas margens?')">💸 Maiores Spreads (Lucro)</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Faça um ranking dos agentes que oferecem os melhores prazos de Free Time (dias livres) na rota Ásia-Brasil em contêineres de 40\'HC.')">⏱️ Agentes & Free Time</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Quais rotas possuem lotes de Space on Hand mais baratos que o tarifário convencional? Indique onde há margem imediata.')">🚀 Oportunidades Space</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Identifique quais agentes estão cobrando fretes de compra acima da média histórica operacional nas rotas principais e sugira alvos de renegociação.')">🎯 Alvos de Renegociação</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Compare os fretes médios de compra entre armadores (carriers) para os portos do Sul/Sudeste (Itajaí, Navegantes, Santos) contra o Nordeste.')">🚢 Desempenho de Armadores</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Liste os clientes com maior volume operacional de importação no banco e analise o frete médio de venda e spread praticado para cada um.')">👥 Perfil dos Clientes (Volume)</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Destaque os agentes que dominam rotas específicas (nicho, como Taiwan ou portos outports) vs agentes com tarifas FAK gerais competitivas.')">🌐 Agentes de Nicho vs FAK</button>
+                        <button class="chip" onclick="window.sendQuickBoardPrompt('Estime qual seria a economia financeira real se direcionássemos 20% do volume do tarifário convencional para os contratos de Space on Hand ativos.')">💰 Simular Ganhos com Space</button>
+                    </div>
+                    
+                    <div class="ai-board-chat-input-area">
+                        <textarea id="ai-board-chat-input" placeholder="Escreva sua pergunta analítica de pricing de importação marítima..."></textarea>
+                        <button class="btn btn-primary" id="btn-send-ai-board-chat" style="height:50px; display:flex; align-items:center; justify-content:center; padding:0 20px; font-weight:600;">
+                            <i data-lucide="send" style="width:16px;height:16px;margin-right:6px;"></i> Enviar
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Right Pane: Kanban & Sketchpad -->
+                <div class="ai-board-tools-pane">
+                    <!-- Top: Kanban Board -->
+                    <div class="ai-board-kanban">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:1px solid var(--card-border);">
+                            <h2 style="margin:0; font-size:0.95rem; font-weight:600; display:flex; align-items:center; gap:8px;">
+                                <i data-lucide="trello" style="color:var(--primary); width:16px; height:16px;"></i> 
+                                Pricing Board (Kanban)
+                            </h2>
+                            <button class="btn btn-primary btn-sm" onclick="window.addNewKanbanCard()" style="margin:0; padding:3px 8px; font-size:0.75rem; display:flex; align-items:center; gap:4px;">
+                                <i data-lucide="plus" style="width:12px;height:12px;"></i> Novo Card
+                            </button>
+                        </div>
+                        
+                        <div class="kanban-columns">
+                            <!-- Column 1: Lanes & Agentes -->
+                            <div class="kanban-column" data-col="negociacao">
+                                <div class="kanban-column-header">Lanes & Agentes</div>
+                                <div class="kanban-cards-list" id="kanban-col-negociacao" ondragover="window.allowKanbanDrop(event)" ondrop="window.dropKanbanCard(event, 'negociacao')">
+                                    <!-- Cards dynamically loaded -->
+                                </div>
+                            </div>
+                            <!-- Column 2: Oportunidades -->
+                            <div class="kanban-column" data-col="oportunidades">
+                                <div class="kanban-column-header">Oportunidades</div>
+                                <div class="kanban-cards-list" id="kanban-col-oportunidades" ondragover="window.allowKanbanDrop(event)" ondrop="window.dropKanbanCard(event, 'oportunidades')">
+                                    <!-- Cards dynamically loaded -->
+                                </div>
+                            </div>
+                            <!-- Column 3: Diretrizes & Momentos -->
+                            <div class="kanban-column" data-col="fechado">
+                                <div class="kanban-column-header">Diretrizes & Momentos</div>
+                                <div class="kanban-cards-list" id="kanban-col-fechado" ondragover="window.allowKanbanDrop(event)" ondrop="window.dropKanbanCard(event, 'fechado')">
+                                    <!-- Cards dynamically loaded -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bottom: Whiteboard Sketchpad -->
+                    <div class="ai-board-sketchpad">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; padding:10px 20px; border-bottom:1px solid var(--card-border);">
+                            <h2 style="margin:0; font-size:0.95rem; font-weight:600; display:flex; align-items:center; gap:8px;">
+                                <i data-lucide="pencil-ruler" style="color:var(--primary); width:16px; height:16px;"></i> 
+                                Quadro de Estratégias / Desenho
+                            </h2>
+                            <div style="display:flex; gap:8px; align-items:center; margin:0;">
+                                <input type="color" id="sketch-color" value="#3b82f6" style="width:22px; height:22px; border:none; padding:0; cursor:pointer; border-radius:4px; background:none;">
+                                <select id="sketch-size" class="select-sort" style="width:75px; padding:2px 4px; font-size:0.75rem; margin:0;">
+                                    <option value="2">Traço Fino</option>
+                                    <option value="5" selected>Traço Médio</option>
+                                    <option value="10">Traço Grosso</option>
+                                </select>
+                                <button class="btn btn-secondary btn-sm" onclick="window.clearSketchpad()" style="margin:0; padding:2px 8px; font-size:0.75rem; display:flex; align-items:center; gap:4px;">
+                                    <i data-lucide="eraser" style="width:12px;height:12px;"></i> Limpar
+                                </button>
+                            </div>
+                        </div>
+                        <div class="sketchpad-body">
+                            <canvas id="sketch-canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Tab Panel -->
+        <div id="analysis-tab-panel" class="tab-panel hidden">
+            <!-- Stats Summary Cards -->
+            <section class="opportunities-grid" style="margin-bottom: 24px;">
+                <div class="opportunity-card progress-glow">
+                    <div class="card-glow-bg"></div>
+                    <div class="card-icon green">
+                        <i data-lucide="trending-down"></i>
+                    </div>
+                    <div class="card-info">
+                        <span class="card-label">Economia Total Potencial</span>
+                        <h3 class="card-value" id="analysis-total-saving">$0.00</h3>
+                        <p class="card-meta">Redução de custo estimada</p>
+                    </div>
+                </div>
+
+                <div class="opportunity-card progress-glow">
+                    <div class="card-glow-bg"></div>
+                    <div class="card-icon blue">
+                        <i data-lucide="lightbulb"></i>
+                    </div>
+                    <div class="card-info">
+                        <span class="card-label">Oportunidades Encontradas</span>
+                        <h3 class="card-value" id="analysis-total-ops">0</h3>
+                        <p class="card-meta" id="analysis-ops-subtitle">Rotas com melhor frete</p>
+                    </div>
+                </div>
+
+                <div class="opportunity-card progress-glow">
+                    <div class="card-glow-bg"></div>
+                    <div class="card-icon purple">
+                        <i data-lucide="clipboard-list"></i>
+                    </div>
+                    <div class="card-info">
+                        <span class="card-label">Processos Analisados</span>
+                        <h3 class="card-value" id="analysis-total-processes">0</h3>
+                        <p class="card-meta">Cargas ativas não embarcadas</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Info banner -->
+            <div class="analysis-banner">
+                <i data-lucide="info"></i>
+                <span><strong>Atualização:</strong> Análise aprimorada com dados de Transit Time e Free Time dos armadores acordados.</span>
+            </div>
+
+            <!-- Opportunities Panel (only panel now) -->
+            <div id="subtab-panel-opportunities" class="subtab-panel">
+                <div class="analysis-section-header">
+                    <div>
+                        <h2>Oportunidades de Recompra</h2>
+                        <div class="analysis-source-selector" style="display:flex; gap:4px; align-items:center; margin-top: 8px;">
+                            <span style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Base de Cargas:</span>
+                            <button class="pill-btn active" data-source="operational" id="analysis-source-operational">Massa Operacional</button>
+                            <button class="pill-btn" data-source="commercial" id="analysis-source-commercial">Massa Comercial</button>
+                        </div>
+                        <div class="analysis-booking-filter" style="display:flex; gap:4px; align-items:center; margin-top: 8px;">
+                            <span style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Status:</span>
+                            <button class="pill-btn active" data-booking="all" id="analysis-booking-all">Todos</button>
+                            <button class="pill-btn" data-booking="com" id="analysis-booking-com">C/ Booking</button>
+                            <button class="pill-btn" data-booking="sem" id="analysis-booking-sem">S/ Booking</button>
+                        </div>
+                    </div>
+                    <div class="analysis-search-wrapper">
+                        <div class="grouping-selector" style="display:flex; gap:4px; align-items:center;">
+                            <span style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Agrupar por:</span>
+                            <button class="pill-btn active" data-group="rota" id="group-by-rota">Rota</button>
+                            <button class="pill-btn" data-group="agente" id="group-by-agente">Agente</button>
+                            <button class="pill-btn" data-group="cliente" id="group-by-cliente">Cliente</button>
+                        </div>
+                        <input type="text" id="analysis-route-search" class="filter-input" style="width: 250px; padding: 6px 12px; font-size:0.85rem;" placeholder="🔍 Buscar...">
+                        <button class="btn btn-export" onclick="exportAnalysisData()" title="Exportar Oportunidades para CSV">
+                            <i data-lucide="download"></i>
+                            <span>Exportar</span>
+                        </button>
+                        <button class="btn btn-secondary" id="btn-sort-saving" style="padding: 6px 12px; font-size:0.825rem; display:flex; align-items:center; gap:4px;">
+                            <span>Economia</span> <i data-lucide="chevron-down" style="width:14px; height:14px;"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Grouped Accordions Container -->
+                <div id="analysis-opportunities-container" class="route-accordions-container">
+                    <!-- Loaded dynamically -->
+                </div>
+            </div>
+
+            <!-- Complete Analysis Sub-Panel -->
+            <div id="subtab-panel-complete" class="subtab-panel hidden" style="display:none">
+                <div class="card" style="padding: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h2>Análise Completa de Cargas Pendentes</h2>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="text" id="analysis-complete-search" class="filter-input" style="width: 250px; padding: 6px 12px; font-size:0.85rem;" placeholder="🔍 Processo, Cliente, Rota...">
+                            <button class="btn btn-export" onclick="exportOperationalData()" title="Exportar Massa Operacional para CSV">
+                                <i data-lucide="download"></i>
+                                <span>Exportar</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="rates-table" style="font-size:0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th onclick="sortSubtable(this, 0, false, false)" style="cursor:pointer;">Processo <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 1, false, false)" style="cursor:pointer;">Cliente <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 2, false, false)" style="cursor:pointer;">Origem <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 3, false, false)" style="cursor:pointer;">Destino <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 4, true, false)" style="cursor:pointer; width: 70px;" class="text-center">Qtd <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 5, false, false)" style="cursor:pointer;">Container <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 6, false, false)" style="cursor:pointer;">Armador Atual <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 7, true, false)" style="cursor:pointer;" class="text-right">Valor Atual <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 8, true, false)" style="cursor:pointer;" class="text-right">Melhor Tarifa <span class="sort-arrow">↕</span></th>
+                                    <th onclick="sortSubtable(this, 9, true, false)" style="cursor:pointer;" class="text-right">Economia Potencial <span class="sort-arrow">↕</span></th>
+                                    <th class="text-center">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysis-complete-tbody">
+                                <!-- Loaded dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Crossing Sub-Panel -->
+            <div id="subtab-panel-manual" class="subtab-panel hidden" style="display:none">
+                <div class="card" style="padding: 20px;">
+                    <h2>Simulador de Recompra de Fretes</h2>
+                    <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:20px;">Selecione um processo operacional pendente para visualizar todas as tarifas compatíveis e simular a economia.</p>
+                    
+                    <div class="simulator-layout">
+                        <div class="sim-select-panel">
+                            <div class="filter-group">
+                                <label for="sim-process-select">Selecionar Processo Operacional</label>
+                                <select id="sim-process-select" class="filter-select" style="padding: 8px 12px; width:100%;">
+                                    <option value="">Selecione um processo...</option>
+                                </select>
+                            </div>
+                            
+                            <div id="sim-process-details" class="process-card-info hidden">
+                                <h3 style="font-size:0.95rem; margin-bottom:12px; font-weight:600; color:var(--primary-light);">Dados do Processo</h3>
+                                <div class="info-item"><span class="info-label">Cliente:</span> <span class="info-val" id="sim-info-cliente">-</span></div>
+                                <div class="info-item"><span class="info-label">Rota:</span> <span class="info-val" id="sim-info-rota">-</span></div>
+                                <div class="info-item"><span class="info-label">Container:</span> <span class="info-val" id="sim-info-container">-</span></div>
+                                <div class="info-item"><span class="info-label">Qtd:</span> <span class="info-val" id="sim-info-qtd">-</span></div>
+                                <div class="info-item"><span class="info-label">Armador Atual:</span> <span class="info-val" id="sim-info-armador">-</span></div>
+                                <div class="info-item"><span class="info-label">Valor Unitário:</span> <span class="info-val" id="sim-info-valor">-</span></div>
+                            </div>
+                        </div>
+                        
+                        <div class="sim-results-panel">
+                            <h3>Tarifas & Spaces Compatíveis Disponíveis</h3>
+                            <div class="table-container">
+                                <table class="rates-table" style="font-size:0.85rem;">
+                                    <thead>
+                                        <tr>
+                                            <th>Tipo/Origem</th>
+                                            <th>Agente / Armador</th>
+                                            <th class="text-right">Valor Tarifa</th>
+                                            <th>Free Time</th>
+                                            <th>Validade / ETD</th>
+                                            <th class="text-right">Economia Unitária</th>
+                                            <th class="text-right">Economia Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sim-rates-tbody">
+                                        <tr>
+                                            <td colspan="7" class="text-center" style="color:var(--text-muted); padding:24px;">Selecione um processo operacional ao lado para iniciar a simulação.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Builder Tab Panel (Criar Tarifário / Space) -->
+        <div id="builder-tab-panel" class="tab-panel hidden">
+            <div class="builder-container">
+                <!-- Builder Header -->
+                <div class="builder-header card">
+                    <div class="builder-header-top">
+                        <div class="builder-header-title">
+                            <i data-lucide="file-plus-2" style="width:22px;height:22px;color:var(--primary-light);"></i>
+                            <div>
+                                <h2>Criação de Tarifário & Space on Hand</h2>
+                                <p class="builder-subtitle">Pipeline: Extração → Normalização → Expansão → Validação → Exportar para Excel</p>
+                            </div>
+                        </div>
+                        <div class="builder-header-actions">
+                            <button class="btn btn-text btn-icon-text" id="builder-clear-btn">
+                                <i data-lucide="trash-2"></i>
+                                <span>Limpar Tudo</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Config Bar -->
+                <div class="builder-config card">
+                    <div class="builder-config-row">
+                        <div class="builder-config-item">
+                            <label for="builder-agente">Agente</label>
+                            <input type="text" id="builder-agente" placeholder="Nome do agente (ex: Helka)" autocomplete="off">
+                        </div>
+                        <div class="builder-config-item">
+                            <label>Tipo de Produto</label>
+                            <div id="builder-type-selector" class="builder-type-selector">
+                                <button class="builder-type-btn active" data-tipo="tarifario">
+                                    <i data-lucide="file-spreadsheet" style="width:14px;height:14px;"></i>
+                                    Tarifário
+                                </button>
+                                <button class="builder-type-btn" data-tipo="space">
+                                    <i data-lucide="package" style="width:14px;height:14px;"></i>
+                                    Space on Hand
+                                </button>
+                            </div>
+                        </div>
+                        <div class="builder-config-item builder-toggle-item">
+                            <label>
+                                <input type="checkbox" id="builder-exclude-japan" checked>
+                                Excluir Japão
+                            </label>
+                        </div>
+                        <div class="builder-config-item builder-toggle-item">
+                            <label>
+                                <input type="checkbox" id="builder-accumulate" checked>
+                                Acumular Resultados
+                            </label>
+                        </div>
+                        <div class="builder-config-item" style="min-width: 200px;">
+                            <label for="builder-gemini-key">Chave Gemini API</label>
+                            <input type="password" id="builder-gemini-key" placeholder="Chave API (opcional)" autocomplete="off" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--bg-secondary); color: var(--text-primary); font-family: inherit; font-size: 0.78rem; transition: border-color 0.2s;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="builder-input-area card">
+                    <div class="builder-input-split">
+                        <!-- Text Input -->
+                        <div class="builder-text-input">
+                            <div class="builder-input-label">
+                                <span><i data-lucide="mail" style="width:14px;height:14px;"></i> Texto da Cotação (E-mail / Proposta)</span>
+                                <button class="btn btn-text btn-sm" id="builder-template-btn" title="Carregar e-mail de exemplo">
+                                    <i data-lucide="file-text" style="width:12px;height:12px;"></i>
+                                    Carregar Exemplo
+                                </button>
+                            </div>
+                            <textarea id="builder-json-input" class="builder-textarea" spellcheck="false" placeholder='Cole aqui o texto do e-mail de Tarifas do agente...
+
+Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></textarea>
+                        </div>
+
+                        <!-- Image Input -->
+                        <div class="builder-image-input">
+                            <div class="builder-input-label">
+                                <span><i data-lucide="image" style="width:14px;height:14px;"></i> Imagens (tabelas)</span>
+                            </div>
+                            <div id="builder-image-dropzone" class="builder-image-dropzone">
+                                <input type="file" id="builder-image-input" accept="image/*" multiple hidden>
+                                <div class="builder-dropzone-content">
+                                    <i data-lucide="image-plus" style="width:28px;height:28px;color:var(--text-muted);"></i>
+                                    <p>Arraste imagens aqui ou <strong>Ctrl+V</strong> para colar</p>
+                                    <span class="builder-dropzone-hint">PNG, JPG — Tabelas de cotações</span>
+                                </div>
+                            </div>
+                            <div id="builder-image-previews" class="builder-image-previews"></div>
+                        </div>
+                    </div>
+
+                    <!-- Process Button -->
+                    <div class="builder-process-bar">
+                        <button class="btn btn-primary builder-process-btn" id="builder-process-btn">
+                            <i data-lucide="zap" style="width:16px;height:16px;"></i>
+                            <span>Extrair & Processar</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results Section (hidden until processed) -->
+                <div id="builder-results" class="builder-results" style="display:none;">
+
+                    <!-- Flags Section -->
+                    <div id="builder-flags-section" class="builder-flags-section card" style="display:none;">
+                        <div class="builder-section-header">
+                            <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Flags de Revisão</h3>
+                        </div>
+                        <div id="builder-flags-list" class="builder-flags-list"></div>
+                    </div>
+
+                    <!-- Tarifário Results -->
+                    <div id="builder-tarifario-section" class="builder-result-section card" style="display:none;">
+                        <div class="builder-section-header">
+                            <div class="builder-section-title-row">
+                                <h3><i data-lucide="file-spreadsheet" style="width:16px;height:16px;"></i> Tarifário (Skychart)</h3>
+                                <span class="badge badge-info" id="builder-tarif-count">0 linhas</span>
+                            </div>
+                            <div class="builder-export-actions">
+                                <button class="btn btn-secondary btn-sm" id="builder-copy-tarifario" title="Copiar para a área de transferência (colável no Excel)">
+                                    <i data-lucide="clipboard-copy" style="width:13px;height:13px;"></i>
+                                    Copiar para Excel
+                                </button>
+                                <button class="btn btn-primary btn-sm" id="builder-export-tarifario" title="Exportar arquivo CSV para Excel">
+                                    <i data-lucide="download" style="width:13px;height:13px;"></i>
+                                    Exportar Excel (.csv)
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="rates-table builder-table" id="builder-tarif-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:35px;" class="text-center"><input type="checkbox" id="builder-select-all-tarif" checked title="Selecionar/Deselecionar tudo"></th>
+                                        <th style="width:100px;">Origem</th>
+                                        <th style="width:100px;">Destino</th>
+                                        <th style="width:90px;">Armador</th>
+                                        <th style="width:100px;">Agente</th>
+                                        <th style="width:100px;">Container</th>
+                                        <th style="width:85px;" class="text-right">Frete (USD)</th>
+                                        <th style="width:45px;" class="text-center">FT</th>
+                                        <th style="width:85px;" class="text-center">Início</th>
+                                        <th style="width:85px;" class="text-center">Fim</th>
+                                        <th style="width:150px;">Observação</th>
+                                        <th style="width:40px;" class="text-center">×</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="builder-tarif-tbody">
+                                    <tr><td colspan="12" class="text-center" style="padding:20px;color:var(--text-muted);">Nenhum dado processado ainda.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Space on Hand Results -->
+                    <div id="builder-space-section" class="builder-result-section card" style="display:none;">
+                        <div class="builder-section-header">
+                            <div class="builder-section-title-row">
+                                <h3><i data-lucide="package" style="width:16px;height:16px;"></i> Space on Hand</h3>
+                                <span class="badge badge-warning" id="builder-space-count">0 linhas</span>
+                            </div>
+                            <div class="builder-export-actions">
+                                <button class="btn btn-secondary btn-sm" id="builder-copy-space" title="Copiar para a área de transferência (colável no Excel)">
+                                    <i data-lucide="clipboard-copy" style="width:13px;height:13px;"></i>
+                                    Copiar para Excel
+                                </button>
+                                <button class="btn btn-primary btn-sm" id="builder-export-space" title="Exportar arquivo CSV para Excel">
+                                    <i data-lucide="download" style="width:13px;height:13px;"></i>
+                                    Exportar Excel (.csv)
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="rates-table builder-table" id="builder-space-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:35px;" class="text-center"><input type="checkbox" id="builder-select-all-space" checked title="Selecionar/Deselecionar tudo"></th>
+                                        <th style="width:90px;">Agente</th>
+                                        <th style="width:100px;">POL</th>
+                                        <th style="width:120px;">POD</th>
+                                        <th style="width:80px;" class="text-center">VOL</th>
+                                        <th style="width:80px;" class="text-center">ETD</th>
+                                        <th style="width:75px;" class="text-right">Frete</th>
+                                        <th style="width:45px;" class="text-center">FT</th>
+                                        <th style="width:90px;">Armador</th>
+                                        <th style="width:150px;">Observação</th>
+                                        <th style="width:40px;" class="text-center">×</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="builder-space-tbody">
+                                    <tr><td colspan="11" class="text-center" style="padding:20px;color:var(--text-muted);">Nenhum dado processado ainda.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Dashboard Tab Panel -->
+        <div id="dashboard-tab-panel" class="tab-panel hidden">
+
+            <!-- Dashboard Filters (same pattern as main tab) -->
+            <div class="advanced-filters" style="margin-bottom: 16px;">
+                <div class="filter-group">
+                    <label for="agent-dash-container-filter">Tipo Container</label>
+                    <select id="agent-dash-container-filter">
+                        <option value="">Todos Contêineres</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="agent-dash-obs-filter">Tipo de Carga / Obs</label>
+                    <select id="agent-dash-obs-filter">
+                        <option value="all">🔍 Qualquer Carga</option>
+                        <option value="geral">📦 Carga Geral (Sem NAC)</option>
+                        <option value="pneu">🚗 Pneus / Autopeças</option>
+                        <option value="solar">☀️ Painel Solar</option>
+                        <option value="vidro">🥛 Vidro</option>
+                        <option value="textil">👕 Têxtil</option>
+                        <option value="ows">⚖️ OWS / Pesada</option>
+                        <option value="promo">⚡ Promo / Spot</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- SEÇÃO 1: PAINEL DE RANKINGS (Visão Executiva)              -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <div class="agent-dash-section" style="margin-bottom: 16px;">
+                <div class="agent-dash-section-header" style="margin-bottom:8px;">
+                    <h2 style="font-size:14px;"><i data-lucide="trophy"></i> Painel de Rankings</h2>
+                </div>
+                <div id="agent-ranking-cards" class="agent-ranking-grid">
+                    <!-- Dynamically populated by JS -->
+                    <div class="agent-rank-card agent-rank-card--gold">
+                        <div class="agent-rank-card__icon">🥇</div>
+                        <div class="agent-rank-card__label">Melhor Agente Geral</div>
+                        <div class="agent-rank-card__value" id="rank-best-global-name">—</div>
+                        <div class="agent-rank-card__meta" id="rank-best-global-meta">Frete médio: —</div>
+                    </div>
+                    <div class="agent-rank-card agent-rank-card--blue">
+                        <div class="agent-rank-card__icon">🏖️</div>
+                        <div class="agent-rank-card__label">Melhor Agente Sudeste</div>
+                        <div class="agent-rank-card__value" id="rank-best-sudeste-name">—</div>
+                        <div class="agent-rank-card__meta" id="rank-best-sudeste-meta">Santos, Navegantes, Itapoá...</div>
+                    </div>
+                    <div class="agent-rank-card agent-rank-card--green">
+                        <div class="agent-rank-card__icon">🌴</div>
+                        <div class="agent-rank-card__label">Melhor Agente Nordeste</div>
+                        <div class="agent-rank-card__value" id="rank-best-nordeste-name">—</div>
+                        <div class="agent-rank-card__meta" id="rank-best-nordeste-meta">Suape, Pecém, Salvador...</div>
+                    </div>
+                    <div class="agent-rank-card agent-rank-card--purple">
+                        <div class="agent-rank-card__icon">🚢</div>
+                        <div class="agent-rank-card__label">Melhor por Origem</div>
+                        <div class="agent-rank-card__detail" id="rank-best-by-origin">
+                            <div class="origin-mini-row"><span class="origin-label">Shanghai</span><span class="origin-winner">—</span></div>
+                            <div class="origin-mini-row"><span class="origin-label">Ningbo</span><span class="origin-winner">—</span></div>
+                            <div class="origin-mini-row"><span class="origin-label">Shenzhen</span><span class="origin-winner">—</span></div>
+                        </div>
+                    </div>
+                    <div class="agent-rank-card agent-rank-card--orange">
+                        <div class="agent-rank-card__icon">⚔️</div>
+                        <div class="agent-rank-card__label">Rota Mais Disputada</div>
+                        <div class="agent-rank-card__value" id="rank-most-contested-route">—</div>
+                        <div class="agent-rank-card__meta" id="rank-most-contested-meta">— agentes · Spread: —</div>
+                    </div>
+                    <div class="agent-rank-card agent-rank-card--red">
+                        <div class="agent-rank-card__icon">💰</div>
+                        <div class="agent-rank-card__label">Maior Economia Possível</div>
+                        <div class="agent-rank-card__value" id="rank-max-saving-route">—</div>
+                        <div class="agent-rank-card__meta" id="rank-max-saving-meta">Economia: —</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- SEÇÃO 2A: BASE PORTS COMPARISON                            -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <div class="agent-dash-section" style="margin-bottom: 28px;">
+                <div class="agent-dash-section-header">
+                    <h2><i data-lucide="anchor"></i> Base Ports <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:4px;">Ningbo · Shanghai · Shenzhen → Santos · Itapoá · Navegantes</span></h2>
+                </div>
+                <div class="card" style="border-radius:12px;overflow:hidden;border:2px solid var(--primary,#004b87);">
+                    <div class="card-body" style="padding:0;">
+                        <div class="table-responsive" style="max-height:500px;overflow-y:auto;">
+                            <table class="rates-table agent-comparison-table" style="width:100%;border-collapse:collapse;">
+                                <thead style="position:sticky;top:0;z-index:10;background:linear-gradient(135deg,#f8fafc,#f1f5f9);">
+                                    <tr id="agent-bp-thead-row">
+                                        <th>Origem</th>
+                                        <th>Destino</th>
+                                        <th>Container</th>
+                                        <th>Vencedor</th>
+                                        <th class="text-right">Melhor Preço</th>
+                                        <th class="text-right">Economia</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="agent-bp-tbody">
+                                    <tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Carregando base ports...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- SEÇÃO 2B: COMPARATIVO COMPLETO (todas as rotas)            -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <div class="agent-dash-section" style="margin-bottom: 28px;">
+                <div class="agent-dash-section-header" style="margin-bottom:8px;">
+                    <h2 style="font-size:14px;"><i data-lucide="columns"></i> Comparativo Completo (Todas as Rotas)</h2>
+                </div>
+                <div class="advanced-filters" style="margin-bottom:12px;">
+                    <div class="filter-group">
+                        <label for="agent-comp-filter-origem">Origem</label>
+                        <input type="text" id="agent-comp-filter-origem" placeholder="Pesquisar origem" autocomplete="off">
+                    </div>
+                    <div class="filter-group">
+                        <label for="agent-comp-filter-destino">Destino</label>
+                        <input type="text" id="agent-comp-filter-destino" placeholder="Pesquisar destino" autocomplete="off">
+                    </div>
+                </div>
+                <div class="card" style="border-radius:12px;overflow:hidden;">
+                    <div class="card-body" style="padding:0;">
+                        <div class="table-responsive" style="max-height:600px;overflow-y:auto;">
+                            <table class="rates-table agent-comparison-table" style="width:100%;border-collapse:collapse;">
+                                <thead style="position:sticky;top:0;z-index:10;" id="agent-comp-thead">
+                                    <tr id="agent-comp-thead-row">
+                                        <th>Origem</th>
+                                        <th>Destino</th>
+                                        <th>Container</th>
+                                        <th>Vencedor</th>
+                                        <th class="text-right">Melhor Preço</th>
+                                        <th class="text-right">Economia</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="agent-comp-tbody">
+                                    <tr><td colspan="6" class="text-center" style="padding:40px;color:var(--text-muted);">Carregando dados dos agentes...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- SEÇÃO 3: RANKING DETALHADO + EVOLUÇÃO                      -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <div class="agent-dash-section">
+                <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start;">
+                    <!-- Leaderboard -->
+                    <div class="card" style="border-radius:12px;overflow:hidden;">
+                        <div class="card-header" style="background:linear-gradient(135deg,rgba(0,75,135,0.06),rgba(59,130,246,0.04));border-bottom:2px solid var(--primary,#004b87);">
+                            <h2><i data-lucide="award"></i> Ranking de Agentes</h2>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div class="table-responsive">
+                                <table class="rates-table" style="width:100%;border-collapse:collapse;">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:50px;" class="text-center">#</th>
+                                            <th>Agente</th>
+                                            <th class="text-right">Frete Médio (USD)</th>
+                                            <th class="text-center">Vitórias (%)</th>
+                                            <th class="text-center">Rotas</th>
+                                            <th class="text-center">Armadores</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="agent-leaderboard-tbody">
+                                        <tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Carregando ranking...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- History Timeline -->
+                    <div class="card" style="border-radius:12px;overflow:hidden;">
+                        <div class="card-header">
+                            <h2><i data-lucide="history"></i> Evolução de Snapshots</h2>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div id="agent-dash-history-log" style="max-height:400px;overflow-y:auto;padding:16px;">
+                                <p style="color:var(--text-muted);text-align:center;padding:20px;">Nenhum histórico registrado.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>&copy; 2026 Mond Shipping. Todos os direitos reservados. Inteligência de Tarifas Internas.</p>
+            <div class="footer-status">
+                <span class="status-dot online"></span>
+                <span>Dados Salvos Localmente</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="details-modal" class="modal">
+        <div class="modal-content card progress-glow">
+            <div class="modal-header">
+                <h2><i data-lucide="info"></i> Detalhes da Tarifa</h2>
+                <span id="close-modal" class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Origem</span>
+                        <span class="detail-val" id="m-origem">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Destino</span>
+                        <span class="detail-val" id="m-destino">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Tipo de Container</span>
+                        <span class="detail-val" id="m-container">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Valor do Frete</span>
+                        <span class="detail-val highlight-val" id="m-valor">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Armador</span>
+                        <span class="detail-val" id="m-armador">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Agente de Carga</span>
+                        <span class="detail-val" id="m-agente">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Free Time</span>
+                        <span class="detail-val" id="m-freetime">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Período de Validade</span>
+                        <span class="detail-val" id="m-validade">-</span>
+                    </div>
+                    <!-- Additional Operational Fields (Visible only for processes) -->
+                    <div class="detail-item operational-only" id="detail-item-prontidao" style="display: none;">
+                        <span class="detail-label">Prontidão Carga</span>
+                        <span class="detail-val" id="m-prontidao">-</span>
+                    </div>
+                    <div class="detail-item operational-only" id="detail-item-embarque" style="display: none;">
+                        <span class="detail-label">Previsão Embarque</span>
+                        <span class="detail-val" id="m-previsao-embarque">-</span>
+                    </div>
+                    <div class="detail-item operational-only" id="detail-item-atracacao" style="display: none;">
+                        <span class="detail-label">Previsão Atracação</span>
+                        <span class="detail-val" id="m-previsao-atracacao">-</span>
+                    </div>
+                    <div class="detail-item operational-only" id="detail-item-vl-compra" style="display: none;">
+                        <span class="detail-label">Frete Total Compra</span>
+                        <span class="detail-val" id="m-vl-compra-frete">-</span>
+                    </div>
+                    <!-- Additional Commercial Fields -->
+                    <div class="detail-item commercial-only" id="detail-item-venda" style="display: none;">
+                        <span class="detail-label">Valor de Venda (Un.)</span>
+                        <span class="detail-val highlight-val" style="color: var(--warning);" id="m-valor-venda">-</span>
+                    </div>
+                    <div class="detail-item commercial-only" id="detail-item-venda-total" style="display: none;">
+                        <span class="detail-label">Venda Total</span>
+                        <span class="detail-val" id="m-vl-venda-frete">-</span>
+                    </div>
+                    <div class="detail-item commercial-only" id="detail-item-transit-time" style="display: none;">
+                        <span class="detail-label">Transit Time (Dias)</span>
+                        <span class="detail-val" id="m-transit-time">-</span>
+                    </div>
+                    <div class="detail-item commercial-only" id="detail-item-transit-historico" style="display: none;">
+                        <span class="detail-label">Transit Time Histórico</span>
+                        <span class="detail-val" id="m-transit-historico">-</span>
+                    </div>
+                    <div class="detail-item commercial-only" id="detail-item-status" style="display: none;">
+                        <span class="detail-label">Status da Cotação</span>
+                        <span class="detail-val" id="m-status-cota">-</span>
+                    </div>
+                </div>
+                
+                <div class="detail-observation">
+                    <h3>Observações e Condições de Agenciamento</h3>
+                    <div class="obs-box" id="m-observacao">
+                        Nenhuma observação informada para esta tarifa.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-close-modal-footer" class="btn btn-primary">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Drag and Drop Overlay -->
+    <div id="global-drag-overlay" class="global-drag-overlay">
+        <div class="drag-overlay-content">
+            <i data-lucide="upload-cloud"></i>
+            <h2>Arraste sua planilha e solte em qualquer lugar!</h2>
+            <p>O portal da Mond Shipping atualizará todo o banco de tarifas automaticamente.</p>
+        </div>
+    </div>
+
+    <!-- Tariff Builder Modules -->
+    <script src="dictionaries.js"></script>
+    <script src="tariff_engine.js"></script>
+    <script src="MOND_engine_v2.js"></script>
+    <script src="MOND_dashboard.js"></script>
+    <script src="dashboard_controller.js?v=20260713_v11"></script>
+    <script src="llm_extract.js"></script>
+    <script src="tariff_builder.js"></script>
+
+    <!-- Script Application -->
+    <script src="app.js?v=20260713_1616"></script>
+
+    <!-- Patch: filtrar embarcados/cancelados via blacklist do JSON cru -->
+    <script>
+    (function() {
+        console.warn('%c[PATCH v4] Filtro de embarcados via blacklist!', 'background:#e00;color:#fff;font-size:14px;padding:4px 8px;');
+
+        // Buscar o JSON cru e construir blacklist de processos embarcados/cancelados
+        var _embarkedBlacklist = new Set();
+        
+        function _hasDate(d) {
+            if (!d) return false;
+            var s = String(d).trim();
+            return s !== '' && s !== '-' && s.indexOf('0001') !== 0 && s.indexOf('1900') !== 0;
+        }
+
+        // Carregar blacklist do JSON cru
+        fetch('./operational_cache.json')
+            .then(function(r) { return r.json(); })
+            .then(function(json) {
+                if (!json.data) return;
+                json.data.forEach(function(item) {
+                    var proc = item.PROCESSO;
+                    if (!proc) return;
+                    // Embarcado?
+                    if (_hasDate(item.DT_CONFIRMACAO_EMBARQUE)) {
+                        _embarkedBlacklist.add(proc);
+                    }
+                    // Cancelado?
+                    var st = (item.DS_STATUS || '').trim().toLowerCase();
+                    if (st === 'cancelado') {
+                        _embarkedBlacklist.add(proc);
+                    }
+                });
+                console.log('[PATCH v4] Blacklist construída: ' + _embarkedBlacklist.size + ' processos embarcados/cancelados');
+                
+                // Aplicar blacklist imediatamente ao appOperational
+                if (window.appOperational && Array.isArray(window.appOperational)) {
+                    var antes = window.appOperational.length;
+                    window.appOperational = window.appOperational.filter(function(p) {
+                        return !_embarkedBlacklist.has(p.processo);
+                    });
+                    var depois = window.appOperational.length;
+                    console.log('[PATCH v4] appOperational filtrado: ' + antes + ' → ' + depois);
+                    
+                    // Re-renderizar
+                    if (typeof renderAnalysisTab === 'function') renderAnalysisTab();
+                    if (typeof updateDashboardCards === 'function') updateDashboardCards();
+                    if (typeof applyFilters === 'function') applyFilters();
+                }
+            })
+            .catch(function(e) { console.error('[PATCH v4] Erro ao carregar blacklist:', e); });
+
+        // Monkey-patch getAnalysisData para sempre filtrar
+        var _origGetAnalysisData = window.getAnalysisData;
+        window.getAnalysisData = function() {
+            if (window.appOperational && Array.isArray(window.appOperational) && _embarkedBlacklist.size > 0) {
+                var antes = window.appOperational.length;
+                window.appOperational = window.appOperational.filter(function(p) {
+                    return !_embarkedBlacklist.has(p.processo);
+                });
+                var depois = window.appOperational.length;
+                if (antes !== depois) {
+                    console.log('[PATCH v4] getAnalysisData filtrou: ' + antes + ' → ' + depois);
+                }
+            }
+            return _origGetAnalysisData.apply(this, arguments);
+        };
+
+        // Monkey-patch fetchOperationalData para filtrar após cada sync
+        var _origFetch = window.fetchOperationalData;
+        if (_origFetch) {
+            window.fetchOperationalData = async function(showOverlay) {
+                await _origFetch.call(this, showOverlay);
+                if (window.appOperational && Array.isArray(window.appOperational) && _embarkedBlacklist.size > 0) {
+                    var antes = window.appOperational.length;
+                    window.appOperational = window.appOperational.filter(function(p) {
+                        return !_embarkedBlacklist.has(p.processo);
+                    });
+                    var depois = window.appOperational.length;
+                    console.log('[PATCH v4] Pós-fetch filtrou: ' + antes + ' → ' + depois);
+                }
+            };
+        }
+    })();
+    </script>
+
+    <!-- Chatbot Widget Mond AI -->
+    <style>
+        .ai-chat-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 9999;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .ai-chat-btn:hover {
+            transform: scale(1.08) rotate(5deg);
+            background: var(--primary-light);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+        }
+        .ai-chat-btn i {
+            width: 24px;
+            height: 24px;
+        }
+        .ai-chat-drawer {
+            position: fixed;
+            bottom: 92px;
+            right: 24px;
+            width: 400px;
+            height: 520px;
+            border-radius: 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            z-index: 9999;
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow: hidden;
+        }
+        .ai-chat-drawer.active-chat {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: all;
+        }
+        .ai-chat-header {
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .ai-chat-header-title {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ai-chat-header-status {
+            font-size: 0.7rem;
+            color: #10b981;
+            background: rgba(16, 185, 129, 0.12);
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        .ai-chat-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .ai-chat-close-btn:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        .ai-chat-body {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: var(--bg-primary);
+        }
+        .ai-message {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.825rem;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+        .ai-message.user {
+            align-self: flex-end;
+            background: var(--primary);
+            color: #fff;
+            border-bottom-right-radius: 0;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+        .ai-message.bot {
+            align-self: flex-start;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            border-bottom-left-radius: 0;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+        .ai-message-time {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-align: right;
+            display: block;
+        }
+        .ai-chat-input-area {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--card-border);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .ai-chat-input {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--card-border);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 0.825rem;
+            resize: none;
+            height: 36px;
+            max-height: 100px;
+            font-family: inherit;
+            line-height: 1.4;
+        }
+        .ai-chat-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .ai-chat-send-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .ai-chat-send-btn:hover {
+            background: var(--primary-light);
+        }
+        .ai-chat-send-btn:disabled {
+            background: var(--card-border);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+        .ai-typing-indicator {
+            align-self: flex-start;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 10px 14px;
+            border-radius: 12px;
+            border-bottom-left-radius: 0;
+            display: none;
+            align-items: center;
+            gap: 4px;
+        }
+        .ai-typing-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            animation: aiBounce 1.4s infinite ease-in-out both;
+        }
+        .ai-typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .ai-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes aiBounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
+        .ai-chat-alert {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px dashed #ef4444;
+            color: #ef4444;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+    </style>
+
+    <!-- Floating Trigger -->
+    <button class="ai-chat-btn" id="btn-open-ai-chat" title="Conversar com Analista IA">
+        <i data-lucide="bot"></i>
+    </button>
+
+    <!-- Chat Drawer -->
+    <div class="ai-chat-drawer" id="ai-chat-drawer">
+        <div class="ai-chat-header">
+            <h3 class="ai-chat-header-title">
+                <i data-lucide="bot" style="color:var(--primary); width:18px; height:18px;"></i>
+                Mond AI
+                <span class="ai-chat-header-status">Online</span>
+            </h3>
+            <button class="ai-chat-close-btn" id="btn-close-ai-chat" title="Fechar">
+                <i data-lucide="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        <div class="ai-chat-body" id="ai-chat-messages">
+            <!-- Messages will be added dynamically -->
+            <div class="ai-message bot">
+                Olá! Sou o analista de pricing sênior da Mond Shipping. 
+                Posso te ajudar com análises factuais de fretes, free time, space ou compras vs vendas do tarifário atualmente filtrado.
+                O que gostaria de analisar hoje?
+                <span class="ai-message-time">Agora</span>
+            </div>
+            
+            <div class="ai-typing-indicator" id="ai-chat-typing">
+                <div class="ai-typing-dot"></div>
+                <div class="ai-typing-dot"></div>
+                <div class="ai-typing-dot"></div>
+            </div>
+        </div>
+        <div class="ai-chat-input-area">
+            <textarea class="ai-chat-input" id="ai-chat-input" placeholder="Pergunte sobre os fretes..."></textarea>
+            <button class="ai-chat-send-btn" id="btn-send-ai-chat" disabled>
+                <i data-lucide="send" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Kanban Card Modal -->
+    <div id="kanban-modal" class="modal" style="display:none; position:fixed; z-index:10005; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+        <div class="modal-content card" style="max-width:500px; width:90%; padding:20px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); margin: auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="margin:0; font-size:1.05rem; font-weight:600; color:var(--text-primary);">Salvar no Board</h3>
+                <button onclick="window.closeKanbanModal()" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:1.2rem; line-height:1; padding:4px;">&times;</button>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+                <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary);">Título do Card</label>
+                <input type="text" id="kanban-modal-title" class="select-sort" style="width:100%; padding:8px 12px; font-size:0.85rem; margin:0;" placeholder="Ex: Rota Salvador">
+                
+                <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary);">Coluna do Board</label>
+                <select id="kanban-modal-col" class="select-sort" style="width:100%; padding:8px 12px; font-size:0.85rem; margin:0;">
+                    <option value="negociacao">Lanes & Agentes</option>
+                    <option value="oportunidades" selected>Oportunidades</option>
+                    <option value="fechado">Diretrizes & Momentos</option>
+                </select>
+                
+                <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary);">Conteúdo / Análise</label>
+                <textarea id="kanban-modal-text" class="select-sort" style="width:100%; height:120px; padding:8px 12px; font-size:0.85rem; resize:vertical; font-family:inherit; line-height:1.4; margin:0;" placeholder="Conteúdo do card..."></textarea>
+                <span style="font-size:0.7rem; color:var(--primary); font-weight:600; display:block; margin-top:-4px; line-height:1.2;">💡 Dica: Se você selecionar (grifar) um trecho específico da resposta do chat antes de salvar, salvaremos apenas a sua seleção!</span>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin:0;">
+                <button class="btn btn-secondary" onclick="window.closeKanbanModal()" style="margin:0; padding:6px 14px; font-size:0.8rem;">Cancelar</button>
+                <button class="btn btn-primary" onclick="window.saveKanbanModalCard()" style="margin:0; padding:6px 14px; font-size:0.8rem;">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
