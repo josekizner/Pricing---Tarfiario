@@ -1466,6 +1466,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error("Erro ao ler dados comerciais salvos.", e);
             appComercial = [];
         }
+    }
+
     // Call fallback if both operational and commercial are already in memory
     if (appOperational.length > 0 && appComercial.length > 0) {
         runOperationalFallback();
