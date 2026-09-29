@@ -990,7 +990,11 @@ async function fetchOperationalData(showOverlay = true) {
                 const parsedSellTotal = parseBrNumber(totalSellFreight);
                 const cleanSellTotal = isNaN(parsedSellTotal) ? 0 : parsedSellTotal;
                 
-                const qty = getContainerQty(item.DS_QUANTIDADE_CONTAINERS);
+                let qty = getContainerQty(item.DS_QUANTIDADE_CONTAINERS);
+                const teus = Number(item.VL_TEUS) || 0;
+                if (qty === 1 && teus >= 2 && cleanTotal > 6000) {
+                    qty = Math.round(teus / 2) || 1;
+                }
                 const unitValor = cleanTotal > 0 ? (cleanTotal / qty) : 0;
                 const unitValorVenda = cleanSellTotal > 0 ? (cleanSellTotal / qty) : 0;
 
@@ -4101,17 +4105,17 @@ function renderFretesMedios(data) {
     const container = document.getElementById('ranking-frete-medio-list');
     if (!container) return;
     
-    // Calculate overall averages
-    const withCompra = data.filter(r => r.valor > 0);
-    const withVenda = data.filter(r => (r.valorVenda || 0) > 0);
+    // Filter out multi-container unparsed batches (> 15000), micro-rates (< 100), and deselected outliers
+    const withCompra = data.filter(r => !r._excluded && r.valor >= 100 && r.valor <= 15000);
+    const withVenda = data.filter(r => !r._excluded && (r.valorVenda || 0) >= 100 && (r.valorVenda || 0) <= 18000);
     
     const avgCompra = withCompra.length > 0 ? withCompra.reduce((s, r) => s + r.valor, 0) / withCompra.length : 0;
     const avgVenda = withVenda.length > 0 ? withVenda.reduce((s, r) => s + (r.valorVenda || 0), 0) / withVenda.length : 0;
     
-    // All agents with at least 2 operations
+    // All agents with at least 2 operations (ignoring batch errors > $15,000)
     const agentMap = {};
     data.forEach(r => {
-        if (r.valor <= 0 || !r.agente || r.agente === 'N/A') return;
+        if (r._excluded || r.valor < 100 || r.valor > 15000 || !r.agente || r.agente === 'N/A') return;
         if (!agentMap[r.agente]) agentMap[r.agente] = { total: 0, count: 0 };
         agentMap[r.agente].total += r.valor;
         agentMap[r.agente].count++;
@@ -4139,7 +4143,9 @@ function renderFretesMedios(data) {
             </div>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-            <span style="font-size:0.62rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">🏆 Melhores Agentes (Menor Compra)</span>
+            <span style="font-size:0.62rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">
+                ${sortAsc ? '🏆 Melhores Agentes (Menor Compra)' : '📊 Agentes (Maior Compra)'}
+            </span>
             <button id="btn-sort-agents" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:0.6rem; font-weight:600; padding:1px 4px;" title="Alternar ordenação">
                 ${sortAsc ? '↑ Menor' : '↓ Maior'}
             </button>
