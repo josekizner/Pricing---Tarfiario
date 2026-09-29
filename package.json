@@ -4,6 +4,8 @@
   "description": "Portal Interno de Tarifas & Fretes - Mond Shipping",
   "main": "server.js",
   "scripts": {
+    "build": "node --check server.js",
+    "lint": "node --check server.js",
     "start": "node server.js"
   },
   "dependencies": {

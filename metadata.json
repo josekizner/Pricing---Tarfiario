@@ -1,0 +1,8 @@
+{
+  "name": "Pricing - Tarifário Mond Shipping",
+  "description": "Painel tarifário e de cotações de fretes marítimos da Mond Shipping para consulta, análise e gestão de tarifas de agentes.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
