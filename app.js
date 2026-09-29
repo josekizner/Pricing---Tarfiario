@@ -248,39 +248,38 @@ let _fallbackApplied = false;
  * Roda após cada sync (operacional ou comercial) — só aplica uma vez.
  */
 function runOperationalFallback() {
-    if (_fallbackApplied) return;
     if (appOperational.length === 0 || appComercial.length === 0) return;
     
-    const opDates = appOperational.map(r => r.inicio).filter(d => d).sort().reverse();
+    // Find the latest REAL operational date (ignoring any previous fallback)
+    const realOp = appOperational.filter(r => !r._fromCommercialFallback);
+    const opDates = realOp.map(r => r.inicio).filter(d => d).sort().reverse();
     const latestOpDate = opDates[0] || '1900-01-01';
-    const daysSinceLatest = Math.floor((new Date() - new Date(latestOpDate + 'T00:00:00')) / (1000*60*60*24));
-    
-    if (daysSinceLatest <= 30) return;
-    
-    console.log(`[FALLBACK] Dados operacionais desatualizados (${daysSinceLatest} dias). Complementando com massa comercial...`);
     
     const comercialFallback = appComercial
         .filter(c => {
             if (!c.inicio || c.inicio <= latestOpDate) return false;
-            const analise = (c.analise || '').toLowerCase();
+            const analise = (c.analise || '').toLowerCase().trim();
             return analise === 'aprovado';
         })
         .map(c => ({
             ...c,
             source: 'operational',
             _fromCommercialFallback: true,
+            statusProcesso: 'Aberto',
+            fase: 'pre-embarque',
             processo: c.processo ? `OFT-${c.processo}` : 'N/A',
         }));
     
     if (comercialFallback.length > 0) {
-        appOperational = [...appOperational, ...comercialFallback];
+        appOperational = [...realOp, ...comercialFallback];
         _fallbackApplied = true;
         mondStorage.setItemSync('mond-operational', JSON.stringify(appOperational));
         initFilterDropdowns();
         updateDashboardCards();
         applyFilters();
-        console.log(`[FALLBACK] +${comercialFallback.length} registros comerciais adicionados ao operacional`);
-        showToast(`⚠️ Dados operacionais desatualizados (último: ${latestOpDate}). ${comercialFallback.length} ofertas comerciais adicionadas como fallback.`, 'warning', 8000);
+        if (typeof renderAnalyticsDashboard === 'function') renderAnalyticsDashboard();
+        console.log(`[FALLBACK] +${comercialFallback.length} ofertas comerciais aprovadas adicionadas como fallback ao operacional (a partir de ${latestOpDate})`);
+        showToast(`⚠️ Dados operacionais no ERP param em ${latestOpDate}. ${comercialFallback.length} ofertas comerciais aprovadas adicionadas a partir dessa data.`, 'warning', 7000);
     }
 }
 
@@ -1467,7 +1466,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error("Erro ao ler dados comerciais salvos.", e);
             appComercial = [];
         }
+    // Call fallback if both operational and commercial are already in memory
+    if (appOperational.length > 0 && appComercial.length > 0) {
+        runOperationalFallback();
     }
+
     // Always refresh in background from cache/API to pick up new fields
     fetchCommercialData(false);
     
