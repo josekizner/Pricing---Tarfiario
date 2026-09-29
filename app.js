@@ -1,7 +1,14 @@
 /* ==========================================================================
    APPLICATION LOGIC - MOND SHIPPING RATES DASHBOARD
    ========================================================================== */
-console.warn('%c[MOND v1260] Código novo carregado com IndexedDB storage!', 'background: #ff0000; color: white; font-size: 16px; padding: 4px 8px;');
+// Limpar qualquer chave inválida remanescente do localStorage
+try {
+    const _k = localStorage.getItem('mond_gemini_api_key');
+    if (_k && (_k.startsWith('AQ.') || _k.includes('AQ.Ab8RN6'))) {
+        localStorage.removeItem('mond_gemini_api_key');
+        console.log('[Gemini] Chave inválida antiga removida do localStorage.');
+    }
+} catch (e) {}
 
 // ==========================================================================
 // IndexedDB Storage Helper — replaces localStorage for large datasets
@@ -279,7 +286,6 @@ function runOperationalFallback() {
         applyFilters();
         if (typeof renderAnalyticsDashboard === 'function') renderAnalyticsDashboard();
         console.log(`[FALLBACK] +${comercialFallback.length} ofertas comerciais aprovadas adicionadas como fallback ao operacional (a partir de ${latestOpDate})`);
-        showToast(`⚠️ Dados operacionais no ERP param em ${latestOpDate}. ${comercialFallback.length} ofertas comerciais aprovadas adicionadas a partir dessa data.`, 'warning', 7000);
     }
 }
 
@@ -7999,8 +8005,8 @@ window.initAiChatbot = function() {
     
     if (!btnOpen || !btnClose || !drawer || !input) return;
     
-    // Check if Gemini key exists (use fallback if empty)
-    const geminiKey = localStorage.getItem('mond_gemini_api_key') || 'AQ.Ab8RN6J0PYZAkHWq43h80TYstW_rvvbIp3gu3KUs9_aMq1u81w';
+    const rawKey = localStorage.getItem('mond_gemini_api_key') || '';
+    const geminiKey = (rawKey && !rawKey.startsWith('AQ.')) ? rawKey.trim() : '';
     
     btnOpen.addEventListener('click', () => {
         drawer.classList.add('active-chat');
@@ -8617,8 +8623,15 @@ function appendBoardChatMessage(role, text) {
 }
 
 async function sendBoardChatMessageToAi(userMessage) {
-    const geminiKey = localStorage.getItem('mond_gemini_api_key') || 'AQ.Ab8RN6J0PYZAkHWq43h80TYstW_rvvbIp3gu3KUs9_aMq1u81w';
+    const rawKey = localStorage.getItem('mond_gemini_api_key') || '';
+    const geminiKey = (rawKey && !rawKey.startsWith('AQ.')) ? rawKey.trim() : '';
     const typingIndicator = document.getElementById('ai-board-chat-typing');
+    
+    if (!geminiKey) {
+        if (typingIndicator) typingIndicator.style.display = 'none';
+        appendBoardChatMessage('bot', `🔑 <strong>Chave API do Gemini Necessária</strong><br>Para ativar as análises de IA no Mond AI Board, clique no botão <strong>"Chave API"</strong> no topo da tela e cole sua chave do Google AI Studio (gratuita em <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;">aistudio.google.com</a>).`);
+        return;
+    }
     
     if (typingIndicator) typingIndicator.style.display = 'flex';
     

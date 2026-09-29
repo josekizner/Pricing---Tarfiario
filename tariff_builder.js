@@ -19,7 +19,7 @@ let builderState = {
     flags: [],
     engineFlags: [],         // Raw engine validation warnings/errors
     images: [],
-    geminiKey: localStorage.getItem('mond_gemini_api_key') || 'AQ.Ab8RN6J0PYZAkHWq43h80TYstW_rvvbIp3gu3KUs9_aMq1u81w',
+    geminiKey: (function() { const k = localStorage.getItem('mond_gemini_api_key') || ''; return (k && !k.startsWith('AQ.')) ? k.trim() : ''; })(),
 };
 
 /* ──────────────────────────────────────────────────────────────────────────────
