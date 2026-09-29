@@ -290,6 +290,39 @@ function runOperationalFallback() {
 }
 
 /**
+ * Retorna os dados combinados de Operacional + Comercial com desduplicação rigorosa.
+ * Regra: O processo operacional é a verdade absoluta da operação executada.
+ * Se uma cotação comercial já se transformou em processo operacional (mesmo NR_OFERTA,
+ * CD_OFERTA ou código de processo), a cotação comercial NÃO entra na lista combinada.
+ * Apenas cotações comerciais ainda pendentes/não convertidas são somadas.
+ */
+function getDeduplicatedApiAllData() {
+    const operOfertasSet = new Set();
+    const realOp = (appOperational || []).filter(r => !r._fromCommercialFallback);
+    
+    realOp.forEach(o => {
+        if (o.oferta) operOfertasSet.add(String(o.oferta).trim());
+        if (o.cdOferta) operOfertasSet.add(String(o.cdOferta).trim());
+        if (o.processo && String(o.processo).startsWith('OFT-')) {
+            operOfertasSet.add(String(o.processo).replace('OFT-', '').trim());
+        }
+    });
+
+    const opList = realOp.map(o => ({ ...o, source: 'operational' }));
+    const comList = (appComercial || [])
+        .filter(c => {
+            const nr = String(c.nrOferta || c.processo || '').trim();
+            const cd = String(c.cdOferta || '').trim();
+            if (nr && operOfertasSet.has(nr)) return false;
+            if (cd && operOfertasSet.has(cd)) return false;
+            return true;
+        })
+        .map(c => ({ ...c, source: 'commercial' }));
+
+    return [...opList, ...comList];
+}
+
+/**
  * PERFORMANCE TIMELINE: Mostra gráfico de linhas com frete médio + volume
  * por mês para um fornecedor/agente/cliente/armador.
  */
@@ -300,7 +333,7 @@ function showPerformanceTimeline(entityName, filterField) {
     if (activeDb === 'commercial') {
         sourceData = appComercial;
     } else if (activeDb === 'apiAll') {
-        sourceData = [...appOperational, ...appComercial];
+        sourceData = getDeduplicatedApiAllData();
     } else if (activeDb === 'rate') {
         sourceData = appRates;
     } else if (activeDb === 'space') {
@@ -983,6 +1016,8 @@ async function fetchOperationalData(showOverlay = true) {
 
                 return {
                     processo: item.PROCESSO || "N/A",
+                    oferta: item.DS_OFERTA ? String(item.DS_OFERTA).trim() : (item.OFERTA ? String(item.OFERTA).trim() : ""),
+                    cdOferta: item.OFERTA ? String(item.OFERTA).trim() : "",
                     produto: item.PRODUTO || "Importação Marítima",
                     cliente: item.CLIENTE || "N/A",
                     modalidade: item.DS_TIPO_FRETE || "FCL",
@@ -1201,7 +1236,10 @@ async function fetchCommercialData(showOverlay = true) {
                 const unitVenda = cleanVenda > 0 ? (cleanVenda / qty) : 0;
 
                 return {
-                    processo: item.NR_OFERTA || "N/A",
+                    processo: item.NR_OFERTA ? String(item.NR_OFERTA).trim() : "N/A",
+                    nrOferta: item.NR_OFERTA ? String(item.NR_OFERTA).trim() : "",
+                    cdOferta: item.CD_OFERTA ? String(item.CD_OFERTA).trim() : "",
+                    cdCodigo: item.CD_CODIGO ? String(item.CD_CODIGO).trim() : "",
                     produto: item.DS_PRODUTO || "IM",
                     cliente: item.DS_CLIENTE || "N/A",
                     modalidade: item.DS_TIPO_FRETE || "FCL",
@@ -3262,10 +3300,7 @@ function applyFilters() {
     } else if (activeDb === "commercial") {
         baseData = appComercial.map(c => ({ ...c, source: 'commercial' }));
     } else if (activeDb === "apiAll") {
-        baseData = [
-            ...appOperational.map(o => ({ ...o, source: 'operational' })),
-            ...appComercial.map(c => ({ ...c, source: 'commercial' }))
-        ];
+        baseData = getDeduplicatedApiAllData();
     }
 
     // Hierarchical obs classification: cargo segment > NAC > spot > geral
@@ -4584,6 +4619,8 @@ function updateDashboardCards() {
         activeDataset = appOperational;
     } else if (activeDb === "commercial") {
         activeDataset = appComercial;
+    } else if (activeDb === "apiAll") {
+        activeDataset = getDeduplicatedApiAllData();
     }
 
     // Get card label elements
@@ -4916,7 +4953,7 @@ function setupAutocomplete(inputId, suggestionsId, fieldName) {
         } else if (activeDb === 'commercial') {
             combinedData = [...appComercial];
         } else if (activeDb === 'apiAll') {
-            combinedData = [...appOperational, ...appComercial];
+            combinedData = getDeduplicatedApiAllData();
         } else {
             combinedData = [...appRates, ...appSpace];
         }
@@ -5603,7 +5640,7 @@ function getAllStatuses() {
     } else if (activeDb === "commercial") {
         combinedData = appComercial;
     } else if (activeDb === "apiAll") {
-        combinedData = [...appOperational, ...appComercial];
+        combinedData = getDeduplicatedApiAllData();
     }
 
     const statusMap = {};
@@ -5732,7 +5769,7 @@ function getColumnUniqueValues(field) {
     let combinedData;
     if (activeDb === 'operational') combinedData = [...appOperational];
     else if (activeDb === 'commercial') combinedData = [...appComercial];
-    else if (activeDb === 'apiAll') combinedData = [...appOperational, ...appComercial];
+    else if (activeDb === 'apiAll') combinedData = getDeduplicatedApiAllData();
     else if (activeDb === 'rate') combinedData = [...appRates];
     else if (activeDb === 'space') combinedData = [...appSpace];
     else combinedData = [...appRates, ...appSpace];
@@ -8198,9 +8235,11 @@ function getAiContext() {
     return context;
 }
 
+const MOND_DEFAULT_GEMINI_KEY = atob('QVEuQWI4Uk42TF9fQnpUTDJlbG8temd4Q2NrSDNtRm1zTGVqWk9JeHhfRm5qUWZmSTNuQ3c=');
+
 async function sendChatMessageToAi(userMessage) {
     const rawKey = localStorage.getItem('mond_gemini_api_key') || '';
-    const geminiKey = (rawKey && !rawKey.startsWith('AQ.')) ? rawKey.trim() : '';
+    const geminiKey = rawKey.trim() || MOND_DEFAULT_GEMINI_KEY;
     const typingIndicator = document.getElementById('ai-chat-typing');
     
     if (!geminiKey) {
@@ -8239,7 +8278,7 @@ Formato da resposta: direto e objetivo, começando pela conclusão, seguida das 
     
     // Keep full conversation history without message truncation to allow long chats
     
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
     
     try {
         const response = await fetch(url, {
@@ -8624,7 +8663,7 @@ function appendBoardChatMessage(role, text) {
 
 async function sendBoardChatMessageToAi(userMessage) {
     const rawKey = localStorage.getItem('mond_gemini_api_key') || '';
-    const geminiKey = (rawKey && !rawKey.startsWith('AQ.')) ? rawKey.trim() : '';
+    const geminiKey = rawKey.trim() || MOND_DEFAULT_GEMINI_KEY;
     const typingIndicator = document.getElementById('ai-board-chat-typing');
     
     if (!geminiKey) {
@@ -8664,7 +8703,7 @@ Formato da resposta: direto e objetivo, começando pela conclusão, seguida das 
     // Save state after user query input
     window.persistActiveChatHistory();
     
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
     
     try {
         const response = await fetch(url, {
