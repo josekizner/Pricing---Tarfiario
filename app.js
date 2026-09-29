@@ -290,13 +290,26 @@ function runOperationalFallback() {
  */
 let _timelineChart = null;
 function showPerformanceTimeline(entityName, filterField) {
-    // Use only operational data (deduplicated by processo)
+    // Select data source based on current active tab
+    let sourceData = appOperational;
+    if (activeDb === 'commercial') {
+        sourceData = appComercial;
+    } else if (activeDb === 'apiAll') {
+        sourceData = [...appOperational, ...appComercial];
+    } else if (activeDb === 'rate') {
+        sourceData = appRates;
+    } else if (activeDb === 'space') {
+        sourceData = appSpace;
+    } else if (activeDb === 'all') {
+        sourceData = [...appRates, ...appSpace];
+    }
+
     const seen = new Set();
-    const entityData = appOperational.filter(r => {
+    const entityData = sourceData.filter(r => {
         const val = (r[filterField] || r.armador || r.agente || r.cliente || '').trim().toUpperCase();
         if (val !== entityName.trim().toUpperCase()) return false;
-        // Deduplicate by processo
-        const key = r.processo || Math.random().toString();
+        // Deduplicate
+        const key = (r.processo && r.processo !== 'N/A') ? r.processo : (r.id || `${r.origem}-${r.destino}-${r.inicio}-${r.valor}`);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -307,7 +320,7 @@ function showPerformanceTimeline(entityName, filterField) {
     // Group by month
     const monthMap = {};
     entityData.forEach(r => {
-        const dt = r.inicio || r.fim || '';
+        const dt = r.inicio || r.fim || r.validade || '';
         if (!dt || dt.length < 7) return;
         const month = dt.substring(0, 7); // YYYY-MM
         if (!monthMap[month]) monthMap[month] = { totalFrete: 0, count: 0, cntrs: 0 };
@@ -1859,6 +1872,8 @@ function setupEventListeners() {
             
             // Re-apply filters and update cards for the selected database
             hideRouteDetail();
+            const perfInline = document.getElementById('performance-timeline-inline');
+            if (perfInline) perfInline.style.display = 'none';
             applyFilters();
             updateDashboardCards();
             updateValidadeHeaderLabel();
