@@ -1,11 +1,11 @@
 /* =====================================================================
-   MOND SHIPPING — AGENT DASHBOARD CONTROLLER v2 (dashboard_controller.js)
-   Renders the restructured Agent Dashboard: Rankings, Comparison, Leaderboard.
+   MOND SHIPPING — AGENT DASHBOARD CONTROLLER v3 (dashboard_controller.js)
+   Dashboard Visual, Intuitivo e Executivo para Análise e Benchmarking de Agentes
    ===================================================================== */
 
 // ── BASE PORT CONSTANTS ────────────────────────────────────────────────────
-const BP_ORIGINS = ['NINGBO', 'SHANGHAI', 'SHENZHEN', 'SHEKOU', 'YANTIAN'];
-const BP_DESTINATIONS = ['SANTOS', 'ITAPOA', 'ITAPOÁ', 'NAVEGANTES'];
+const BP_ORIGINS = ['NINGBO', 'SHANGHAI', 'SHENZHEN', 'SHEKOU', 'YANTIAN', 'QINGDAO', 'XIAMEN', 'TIANJIN'];
+const BP_DESTINATIONS = ['SANTOS', 'ITAPOA', 'ITAPOÁ', 'NAVEGANTES', 'PARANAGUÁ', 'PARANAGUA'];
 
 const REGION_SUDESTE = new Set([
     'SANTOS', 'ITAPOA', 'ITAPOÁ', 'NAVEGANTES', 'ITAJAÍ', 'ITAJAI',
@@ -42,7 +42,6 @@ function matchesOrigin(origem, mainOrigin) {
     return o.includes(mainOrigin);
 }
 
-// ── CONTAINER NORMALIZATION (self-contained, no dependency on app.js) ────────
 function normalizeContainerDash(c) {
     const clean = String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (clean.includes('20DRY') || clean.includes('20GP') || clean.includes('20FT')) return "20' DRY";
@@ -54,28 +53,22 @@ function normalizeContainerDash(c) {
     return c || "40' HIGH CUBE";
 }
 
-// Normalize a row's container field in-place
 function normalizeRow(r) {
     if (r.container) r.container = normalizeContainerDash(r.container);
     return r;
 }
 
-// 1.1 DATABASE PERSISTENCE WRAPPER (window.db)
+// ── SNAPSHOTS & DATA REPOSITORY ──────────────────────────────────────────
 window.db = {
     snapshots: [],
     
     async loadAllSnapshots() {
-        try {
-            const res = await fetch('/api/get-snapshots');
-            if (res.ok) {
-                const data = await res.json();
-                this.snapshots = data;
-                console.log('Snapshots loaded from server:', this.snapshots.length);
-                return this.snapshots;
-            }
-        } catch (e) {
-            console.warn('Failed to load snapshots from server, falling back to localStorage:', e);
+        if (window.BUNDLED_SNAPSHOTS && Array.isArray(window.BUNDLED_SNAPSHOTS) && window.BUNDLED_SNAPSHOTS.length > 0) {
+            this.snapshots = window.BUNDLED_SNAPSHOTS;
+            console.log('[Dashboard] Carregados', this.snapshots.length, 'snapshots do bundle.');
+            return this.snapshots;
         }
+
         const list = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -84,32 +77,11 @@ window.db = {
                 try {
                     const content = JSON.parse(localStorage.getItem(key)) || [];
                     list.push({ key, agent: match[1], date: match[2], data: content });
-                } catch (err) { console.error('Error parsing localStorage snapshot:', key, err); }
+                } catch (err) {}
             }
         }
         this.snapshots = list;
-        console.log('Snapshots loaded from localStorage:', this.snapshots.length);
         return this.snapshots;
-    },
-    
-    async saveSnapshot(agent, date, data) {
-        const key = `snapshot:${agent.toUpperCase()}:${date}`;
-        try { localStorage.setItem(key, JSON.stringify(data)); } catch (err) { console.error('Failed to save to localStorage:', err); }
-        try {
-            const res = await fetch('/api/save-snapshot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Agent-Name': agent.toUpperCase(), 'X-Snapshot-Date': date },
-                body: JSON.stringify(data)
-            });
-            if (res.ok) {
-                console.log('Snapshot saved to server.');
-                const idx = this.snapshots.findIndex(s => s.key === key);
-                if (idx > -1) { this.snapshots[idx].data = data; }
-                else { this.snapshots.push({ key, agent: agent.toUpperCase(), date, data }); }
-                return true;
-            }
-        } catch (err) { console.warn('Failed to save snapshot to server:', err); }
-        return false;
     },
     
     getSnapshotData(key) {
@@ -117,36 +89,11 @@ window.db = {
         let data = [];
         if (found) data = found.data || [];
         else { try { data = JSON.parse(localStorage.getItem(key)) || []; } catch (e) { data = []; } }
-        // Normalize containers on read
         return data.map(normalizeRow);
-    },
-
-    clearAllSnapshots() {
-        // Clear from localStorage
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('snapshot:')) keysToRemove.push(key);
-        }
-        keysToRemove.forEach(k => localStorage.removeItem(k));
-        this.snapshots = [];
-        console.log(`Cleared ${keysToRemove.length} snapshots from localStorage.`);
     }
 };
 
-// ══ ONE-TIME WIPE: Clear old snapshots with dirty container names ══
-(function() {
-    const WIPE_FLAG = 'dashboard_snapshot_wipe_v4';
-    if (!localStorage.getItem(WIPE_FLAG)) {
-        console.log('One-time snapshot wipe: clearing old data with unnormalized containers...');
-        if (window.db) window.db.clearAllSnapshots();
-        localStorage.setItem(WIPE_FLAG, Date.now().toString());
-    }
-})();
-
-// ── LIVE DATA BRIDGE ────────────────────────────────────────────────────────
-// Agents to exclude from dashboard (not real forwarding agents)
-const EXCLUDED_AGENTS = new Set(['CHINA GLOBAL', 'N/A', '']);
+const EXCLUDED_AGENTS = new Set(['CHINA GLOBAL', 'N/A', '', 'DESCONHECIDO']);
 
 function getLiveDataByAgent() {
     const rates = window.appRates || [];
@@ -172,48 +119,47 @@ function getLiveDataByAgent() {
     return byAgent;
 }
 
-async function autoSaveTodaySnapshots() {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const byAgent = getLiveDataByAgent();
-    for (const [agent, rows] of Object.entries(byAgent)) {
-        if (rows.length === 0) continue;
-        if (window.db && typeof window.db.saveSnapshot === 'function') {
-            await window.db.saveSnapshot(agent, todayStr, rows);
-        } else {
-            try { localStorage.setItem(`snapshot:${agent}:${todayStr}`, JSON.stringify(rows)); } catch(e) {}
-        }
-    }
-    console.log(`Auto-saved ${Object.keys(byAgent).length} agent snapshots for ${todayStr}`);
-}
-
-function getHistoricalSnapshots() {
-    if (window.db && window.db.snapshots && window.db.snapshots.length > 0) {
-        return window.db.snapshots.map(s => ({ key: s.key, agent: s.agent, date: s.date }));
-    }
-    const list = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const match = key.match(/^snapshot:([^:]+):(\d{4}-\d{2}-\d{2})$/);
-        if (match) list.push({ key, agent: match[1], date: match[2] });
-    }
-    return list;
-}
-
 function getGroupedAgentSnapshots() {
     const todayStr = new Date().toISOString().split('T')[0];
     const liveByAgent = getLiveDataByAgent();
-    const historicalSnaps = getHistoricalSnapshots();
+    const historicalSnaps = (window.db && window.db.snapshots) ? window.db.snapshots : (window.BUNDLED_SNAPSHOTS || []);
     const grouped = {};
+
+    // 1. Live data from active session
     for (const [agent, rows] of Object.entries(liveByAgent)) {
         if (!grouped[agent]) grouped[agent] = [];
         grouped[agent].push({ key: `snapshot:${agent}:${todayStr}`, agent, date: todayStr, _liveData: rows });
     }
+
+    // 2. Historical/Bundled snapshots
     historicalSnaps.forEach(s => {
-        if (s.date === todayStr) return;
-        if (EXCLUDED_AGENTS.has((s.agent || '').toUpperCase())) return;
-        if (!grouped[s.agent]) grouped[s.agent] = [];
-        grouped[s.agent].push(s);
+        const ag = (s.agent || '').toUpperCase().trim();
+        if (EXCLUDED_AGENTS.has(ag)) return;
+        if (!grouped[ag]) grouped[ag] = [];
+        grouped[ag].push(s);
     });
+
+    // 3. Fallback: Extract from active commercial offers if grouped is still empty
+    if (Object.keys(grouped).length === 0 && window.appComercial && window.appComercial.length > 0) {
+        window.appComercial.forEach(c => {
+            const ag = (c.agente || '').toUpperCase().trim();
+            if (!ag || EXCLUDED_AGENTS.has(ag) || c.valor <= 0) return;
+            if (!grouped[ag]) grouped[ag] = [{ key: `com:${ag}`, agent: ag, date: todayStr, _liveData: [] }];
+            grouped[ag][0]._liveData.push({
+                agente: ag,
+                armador: (c.armador || 'VARIOS').toUpperCase().trim(),
+                origem: c.origem || '',
+                destino: c.destino || '',
+                container: normalizeContainerDash(c.container || "40' HIGH CUBE"),
+                frete: Number(c.valor),
+                freeTime: Number(c.freetime) || 0,
+                validadeFim: c.fim || '',
+                observacao: c.observacao || '',
+                data: c.inicio || todayStr
+            });
+        });
+    }
+
     for (const agent in grouped) {
         grouped[agent].sort((a, b) => b.date.localeCompare(a.date));
     }
@@ -224,128 +170,145 @@ function getSnapshotDataSmart(entry) {
     let data = [];
     if (entry._liveData) data = entry._liveData;
     else if (window.db && typeof window.db.getSnapshotData === 'function') data = window.db.getSnapshotData(entry.key);
+    else if (entry.data) data = entry.data;
     else { try { data = JSON.parse(localStorage.getItem(entry.key)) || []; } catch(e) { data = []; } }
     return data.map(normalizeRow);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// INIT & MAIN RENDER
-// ═══════════════════════════════════════════════════════════════════════════
-
-function initDashboard() {
-    ['agent-dash-container-filter', 'agent-dash-obs-filter'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('change', () => renderDashboardTab());
-    });
-
-    ['agent-comp-filter-origem', 'agent-comp-filter-destino'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('input', () => renderFullComparison());
-    });
-}
-
-// Obs category filter: same logic as main search tab
+// ── OBS CATEGORY FILTERING ────────────────────────────────────────────────
 const OBS_RESTRICTED_KEYWORDS = ['pneu', 'autopeça', 'auto-peça', 'borracha', 'solar', 'painel', 'vidro', 'textil', 'têxtil', 'ows', 'gw', 'peso', 'weight', 'promo', 'spot'];
-const NAC_KEYWORDS = ['nac', 'nacional', 'cabotagem'];
 
-function filterRowsByObs(rows, obsFilter, serviceFilter) {
-    let filtered = rows;
-    
-    // Obs category filter
-    if (obsFilter && obsFilter !== 'all') {
-        filtered = filtered.filter(r => {
-            const obs = (r.observacao || '').toLowerCase();
-            if (obsFilter === 'geral') {
-                return !OBS_RESTRICTED_KEYWORDS.some(kw => obs.includes(kw));
-            } else if (obsFilter === 'pneu') {
-                return obs.includes('pneu') || obs.includes('autopeça') || obs.includes('auto-peça') || obs.includes('borracha');
-            } else if (obsFilter === 'solar') {
-                return obs.includes('solar') || obs.includes('painel');
-            } else if (obsFilter === 'vidro') {
-                return obs.includes('vidro');
-            } else if (obsFilter === 'textil') {
-                return obs.includes('textil') || obs.includes('têxtil');
-            } else if (obsFilter === 'ows') {
-                return obs.includes('ows') || obs.includes('gw') || obs.includes('peso') || obs.includes('weight');
-            } else if (obsFilter === 'promo') {
-                return obs.includes('promo') || obs.includes('spot');
-            }
-            return true;
-        });
-    }
-    
-    // Service/NAC filter
-    if (serviceFilter === 'no-nac') {
-        filtered = filtered.filter(r => {
-            const obs = (r.observacao || '').toLowerCase();
-            return !NAC_KEYWORDS.some(kw => obs.includes(kw));
-        });
-    } else if (serviceFilter && serviceFilter.startsWith('svc:')) {
-        const svcName = serviceFilter.substring(4).replace(/-/g, ' ');
-        filtered = filtered.filter(r => {
-            const obs = (r.observacao || '').toLowerCase();
-            return obs.includes(svcName);
-        });
-    }
-    
-    return filtered;
+function filterRowsByObs(rows, obsFilter) {
+    if (!obsFilter || obsFilter === 'all') return rows;
+    return rows.filter(r => {
+        const obs = (r.observacao || '').toLowerCase();
+        if (obsFilter === 'geral') return !OBS_RESTRICTED_KEYWORDS.some(kw => obs.includes(kw));
+        if (obsFilter === 'pneu') return obs.includes('pneu') || obs.includes('autopeça') || obs.includes('auto-peça') || obs.includes('borracha');
+        if (obsFilter === 'solar') return obs.includes('solar') || obs.includes('painel');
+        if (obsFilter === 'vidro') return obs.includes('vidro');
+        if (obsFilter === 'textil') return obs.includes('textil') || obs.includes('têxtil');
+        if (obsFilter === 'ows') return obs.includes('ows') || obs.includes('gw') || obs.includes('peso') || obs.includes('weight');
+        if (obsFilter === 'promo') return obs.includes('promo') || obs.includes('spot');
+        return true;
+    });
 }
 
+// ── VIEW SWITCHING ────────────────────────────────────────────────────────
+window.currentAgentView = 'cards';
+
+window.switchAgentView = function(viewName) {
+    window.currentAgentView = viewName;
+    ['cards', 'matchups', 'ranking'].forEach(v => {
+        const el = document.getElementById(`agent-view-${v}`);
+        const btn = document.getElementById(`btn-agent-view-${v}`);
+        if (el) el.style.display = (v === viewName) ? 'block' : 'none';
+        if (btn) {
+            if (v === viewName) {
+                btn.classList.add('active');
+                btn.style.background = 'var(--card-bg)';
+                btn.style.color = 'var(--primary)';
+                btn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+            } else {
+                btn.classList.remove('active');
+                btn.style.background = 'transparent';
+                btn.style.color = 'var(--text-secondary)';
+                btn.style.boxShadow = 'none';
+            }
+        }
+    });
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+};
+
+// ── FILTER TRIGGER HELPER ─────────────────────────────────────────────────
+window.filterByAgentInMainPortal = function(agentName) {
+    // Switch to search tab
+    const searchTabBtn = document.getElementById('search-tab-link');
+    if (searchTabBtn) searchTabBtn.click();
+    
+    // Set agent input and trigger search
+    const agentInput = document.getElementById('filter-agente-top');
+    if (agentInput) {
+        agentInput.value = agentName;
+        agentInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (typeof applyFilters === 'function') applyFilters();
+    if (typeof showToast === 'function') {
+        showToast(`🔍 Filtrando portal principal pelo agente: ${agentName}`, 'info', 3000);
+    }
+};
+
+// ── MAIN RENDER FUNCTION ──────────────────────────────────────────────────
 function renderDashboardTab() {
+    // Make sure snapshots are loaded
+    if (window.db && window.db.snapshots.length === 0 && window.BUNDLED_SNAPSHOTS) {
+        window.db.snapshots = window.BUNDLED_SNAPSHOTS;
+    }
+
     const grouped = getGroupedAgentSnapshots();
     const porAgente = {};
     const agentsList = [];
 
     for (const agent in grouped) {
         if (grouped[agent].length > 0) {
-            agentsList.push(agent);
-            porAgente[agent] = getSnapshotDataSmart(grouped[agent][0]);
+            const rows = getSnapshotDataSmart(grouped[agent][0]);
+            if (rows.length > 0) {
+                agentsList.push(agent);
+                porAgente[agent] = rows;
+            }
         }
     }
     agentsList.sort();
 
-    if (agentsList.length === 0) {
-        const tbEl = document.getElementById('agent-comp-tbody');
-        if (tbEl) tbEl.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:40px;color:var(--text-muted);">Nenhum dado de agente carregado.</td></tr>';
-        return;
-    }
-
-    // Populate container filter
+    // Populate Container Filter
     populateContainerFilter(porAgente);
 
-    // Read filters
+    // Read user filters
+    const searchVal = (document.getElementById('agent-dash-search')?.value || '').trim().toUpperCase();
     const containerFilterVal = (document.getElementById('agent-dash-container-filter')?.value || '').toUpperCase();
     const obsFilter = document.getElementById('agent-dash-obs-filter')?.value || 'all';
 
-    // Apply all filters to data
+    // Filter each agent's rows
     const filteredPorAgente = {};
     for (const [ag, rows] of Object.entries(porAgente)) {
+        // If agent name matches search, keep all or filter routes
         let f = rows;
         if (containerFilterVal) f = f.filter(r => (r.container || '').toUpperCase() === containerFilterVal);
-        f = filterRowsByObs(f, obsFilter, 'all');
+        f = filterRowsByObs(f, obsFilter);
+        
+        if (searchVal) {
+            const matchesAgent = ag.includes(searchVal);
+            if (!matchesAgent) {
+                f = f.filter(r => (r.origem || '').toUpperCase().includes(searchVal) || (r.destino || '').toUpperCase().includes(searchVal));
+            }
+        }
+
         if (f.length > 0) filteredPorAgente[ag] = f;
     }
 
-    // Build BASE PORT filtered data
-    const bpPorAgente = {};
-    for (const [ag, rows] of Object.entries(filteredPorAgente)) {
-        const bp = rows.filter(r => isBasePort(r.origem, r.destino));
-        if (bp.length > 0) bpPorAgente[ag] = bp;
-    }
+    // Compute route matchups & winners
+    const routeMatchups = computeRouteMatchups(filteredPorAgente);
 
-    // Render all sections
-    renderRankingCards(bpPorAgente, filteredPorAgente);
-    renderBasePortsComparison(bpPorAgente, Object.keys(bpPorAgente).sort());
-    renderFullComparison(filteredPorAgente, Object.keys(filteredPorAgente).sort(), null);
-    renderLeaderboard(bpPorAgente, grouped);
-    renderTimeline(grouped);
+    // Compute agent scorecards & statistics
+    const agentStats = computeAgentStats(filteredPorAgente, routeMatchups);
+
+    // Render 1. Podium
+    renderAgentPodium(agentStats, routeMatchups);
+
+    // Render 2. Agent Cards View
+    renderAgentCardsGrid(agentStats);
+
+    // Render 3. Route Matchup View
+    renderRouteMatchupsView(routeMatchups);
+
+    // Render 4. Leaderboard Table
+    renderAgentLeaderboardTable(agentStats);
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 function populateContainerFilter(porAgente) {
     const sel = document.getElementById('agent-dash-container-filter');
-    if (!sel) return;
+    if (!sel || sel.children.length > 2) return;
     const currentVal = sel.value;
     const containers = new Set();
     for (const rows of Object.values(porAgente)) {
@@ -357,435 +320,462 @@ function populateContainerFilter(porAgente) {
     if (currentVal) sel.value = currentVal;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SEÇÃO 1: RANKING CARDS (Base Ports only)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── MATCHUP & STATISTICS CALCULATORS ──────────────────────────────────────
+function computeRouteMatchups(porAgente) {
+    // Group quotes by Route: "ORIGEM → DESTINO (CONTAINER)"
+    const routes = {};
+    for (const [agent, rows] of Object.entries(porAgente)) {
+        rows.forEach(r => {
+            const frete = Number(r.frete);
+            if (!frete || isNaN(frete) || frete < 200 || frete > 25000) return;
+            const orig = (r.origem || 'CHINA').toUpperCase().trim();
+            const dest = (r.destino || 'BRASIL').toUpperCase().trim();
+            const cont = normalizeContainerDash(r.container || "40' HIGH CUBE");
+            const key = `${orig} → ${dest} [${cont}]`;
 
-function renderRankingCards(bpPorAgente, allPorAgente) {
-    const agentAvg = {};
-    for (const [ag, rows] of Object.entries(bpPorAgente)) {
-        const fretes = rows.filter(r => r.frete != null && !isNaN(r.frete)).map(r => Number(r.frete));
-        if (fretes.length > 0) agentAvg[ag] = { avg: fretes.reduce((a, b) => a + b, 0) / fretes.length, count: fretes.length };
+            if (!routes[key]) {
+                routes[key] = {
+                    key,
+                    origem: orig,
+                    destino: dest,
+                    container: cont,
+                    quotes: []
+                };
+            }
+            routes[key].quotes.push({
+                agente: agent,
+                armador: r.armador || 'N/A',
+                frete: frete,
+                freeTime: r.freeTime || 0,
+                validade: r.validadeFim || ''
+            });
+        });
     }
 
-    // 1. MELHOR GERAL (base ports)
-    const globalBest = Object.entries(agentAvg).sort((a, b) => a[1].avg - b[1].avg)[0];
-    const elGN = document.getElementById('rank-best-global-name');
-    const elGM = document.getElementById('rank-best-global-meta');
-    if (globalBest) {
-        elGN.textContent = globalBest[0];
-        elGM.textContent = `Frete médio: USD ${globalBest[1].avg.toFixed(0)} · ${globalBest[1].count} rotas base`;
-    } else { elGN.textContent = '—'; elGM.textContent = 'Sem dados base port'; }
-
-    // 2. MELHOR SUDESTE (base ports → all sudeste)
-    const seAvg = calcRegionAvg(bpPorAgente, 'SUDESTE');
-    const bestSE = Object.entries(seAvg).sort((a, b) => a[1].avg - b[1].avg)[0];
-    const elSN = document.getElementById('rank-best-sudeste-name');
-    const elSM = document.getElementById('rank-best-sudeste-meta');
-    if (bestSE) { elSN.textContent = bestSE[0]; elSM.textContent = `USD ${bestSE[1].avg.toFixed(0)} · ${bestSE[1].count} rotas`; }
-    else { elSN.textContent = '—'; elSM.textContent = 'Santos, Navegantes, Itapoá...'; }
-
-    // 3. MELHOR NORDESTE (uses ALL filtered data, not just base ports)
-    const dataForNE = allPorAgente || bpPorAgente;
-    const neAvg = calcRegionAvg(dataForNE, 'NORDESTE');
-    const bestNE = Object.entries(neAvg).sort((a, b) => a[1].avg - b[1].avg)[0];
-    const elNN = document.getElementById('rank-best-nordeste-name');
-    const elNM = document.getElementById('rank-best-nordeste-meta');
-    if (bestNE) { elNN.textContent = bestNE[0]; elNM.textContent = `USD ${bestNE[1].avg.toFixed(0)} · ${bestNE[1].count} rotas`; }
-    else { elNN.textContent = '—'; elNM.textContent = 'Suape, Pecém, Salvador...'; }
-
-    // 4. MELHOR POR ORIGEM
-    const elByOrigin = document.getElementById('rank-best-by-origin');
-    let originHtml = '';
-    MAIN_ORIGINS.forEach(origin => {
-        const oAvg = calcOriginAvg(bpPorAgente, origin);
-        const best = Object.entries(oAvg).sort((a, b) => a[1].avg - b[1].avg)[0];
-        const label = origin.charAt(0) + origin.slice(1).toLowerCase();
-        originHtml += `<div class="origin-mini-row">
-            <span class="origin-label">${label}</span>
-            <span class="origin-winner">${best ? best[0] : '—'} ${best ? '<span style="font-weight:500;font-size:11px;color:var(--text-muted);">USD ' + best[1].avg.toFixed(0) + '</span>' : ''}</span>
-        </div>`;
-    });
-    elByOrigin.innerHTML = originHtml;
-
-    // 5. ROTA MAIS DISPUTADA
-    const melhores = window.melhorPorRotaSemArmador ? window.melhorPorRotaSemArmador(bpPorAgente) : {};
-    let mostContested = { key: null, count: 0, spread: 0 };
-    for (const [k, info] of Object.entries(melhores)) {
-        const cnt = info.ranking ? info.ranking.length : 0;
-        if (cnt > mostContested.count || (cnt === mostContested.count && info.economia > mostContested.spread)) {
-            mostContested = { key: k, count: cnt, spread: info.economia };
-        }
-    }
-    const elCR = document.getElementById('rank-most-contested-route');
-    const elCM = document.getElementById('rank-most-contested-meta');
-    if (mostContested.key) {
-        const p = mostContested.key.split('|');
-        elCR.textContent = `${p[0]} → ${p[1]}`;
-        elCM.innerHTML = `${mostContested.count} agentes · Spread: <strong>USD ${mostContested.spread.toFixed(0)}</strong>`;
-    } else { elCR.textContent = '—'; elCM.textContent = '—'; }
-
-    // 6. MAIOR ECONOMIA
-    let maxSav = { key: null, economia: 0, vencedor: '' };
-    for (const [k, info] of Object.entries(melhores)) {
-        if (info.economia > maxSav.economia) maxSav = { key: k, economia: info.economia, vencedor: info.vencedor };
-    }
-    const elSR = document.getElementById('rank-max-saving-route');
-    const elSMeta = document.getElementById('rank-max-saving-meta');
-    if (maxSav.key) {
-        const p = maxSav.key.split('|');
-        elSR.textContent = `${p[0]} → ${p[1]}`;
-        elSMeta.innerHTML = `Economia: <strong style="color:#16a34a;">USD ${maxSav.economia.toFixed(0)}</strong> · Vencedor: ${maxSav.vencedor}`;
-    } else { elSR.textContent = '—'; elSMeta.textContent = '—'; }
-}
-
-function calcRegionAvg(porAgente, region) {
+    // Sort quotes for each route and pick winners
     const result = {};
-    for (const [ag, rows] of Object.entries(porAgente)) {
-        const rr = rows.filter(r => getRegion(r.destino) === region && r.frete != null && !isNaN(r.frete));
-        if (rr.length > 0) result[ag] = { avg: rr.reduce((s, r) => s + Number(r.frete), 0) / rr.length, count: rr.length };
+    for (const [key, info] of Object.entries(routes)) {
+        if (info.quotes.length === 0) continue;
+        info.quotes.sort((a, b) => a.frete - b.frete);
+        const best = info.quotes[0];
+        const worst = info.quotes[info.quotes.length - 1];
+        const secondBest = info.quotes[1] || best;
+        const avg = info.quotes.reduce((acc, q) => acc + q.frete, 0) / info.quotes.length;
+
+        result[key] = {
+            ...info,
+            winner: best.agente,
+            bestPrice: best.frete,
+            worstPrice: worst.frete,
+            secondPrice: secondBest.frete,
+            avgPrice: Math.round(avg),
+            spread: Math.round(worst.frete - best.frete),
+            savingVsSecond: Math.round(secondBest.frete - best.frete)
+        };
     }
     return result;
 }
 
-function calcOriginAvg(porAgente, mainOrigin) {
-    const result = {};
-    for (const [ag, rows] of Object.entries(porAgente)) {
-        const or = rows.filter(r => matchesOrigin(r.origem, mainOrigin) && r.frete != null && !isNaN(r.frete));
-        if (or.length > 0) result[ag] = { avg: or.reduce((s, r) => s + Number(r.frete), 0) / or.length, count: or.length };
+function computeAgentStats(porAgente, routeMatchups) {
+    const stats = {};
+    const totalMatchups = Object.keys(routeMatchups).length;
+
+    for (const [agent, rows] of Object.entries(porAgente)) {
+        const validRates = rows.filter(r => r.frete != null && !isNaN(r.frete) && r.frete >= 200 && r.frete <= 25000);
+        if (validRates.length === 0) continue;
+
+        const prices = validRates.map(r => Number(r.frete));
+        const avgFreight = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
+        const minFreight = Math.min(...prices);
+        const freeTimes = validRates.map(r => Number(r.freeTime) || 0).filter(ft => ft > 0);
+        const avgFt = freeTimes.length > 0 ? Math.round(freeTimes.reduce((a, b) => a + b, 0) / freeTimes.length) : 14;
+
+        // Carrier partners
+        const carriers = new Set();
+        validRates.forEach(r => { if (r.armador && r.armador !== 'N/A') carriers.add(r.armador); });
+
+        // Count route wins
+        let wins = 0;
+        const wonRoutes = [];
+        for (const [routeKey, m] of Object.entries(routeMatchups)) {
+            if (m.winner === agent) {
+                wins++;
+                wonRoutes.push({ route: routeKey, price: m.bestPrice, spread: m.spread });
+            }
+        }
+        wonRoutes.sort((a, b) => b.spread - a.spread);
+
+        // Win rate across quoted routes
+        const quotedRoutesCount = new Set(validRates.map(r => `${(r.origem||'').toUpperCase()}→${(r.destino||'').toUpperCase()}`)).size;
+        const winRate = quotedRoutesCount > 0 ? Math.round((wins / quotedRoutesCount) * 100) : 0;
+
+        stats[agent] = {
+            agent,
+            avgFreight,
+            minFreight,
+            avgFt,
+            carriers: Array.from(carriers),
+            totalQuotes: validRates.length,
+            quotedRoutesCount,
+            wins,
+            winRate,
+            wonRoutes,
+            sampleRows: validRates
+        };
     }
-    return result;
+
+    return stats;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SEÇÃO 2A: BASE PORTS COMPARISON (dedicated section)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── RENDER SEÇÃO 1: PODIUM & DESTAQUES ─────────────────────────────────────
+function renderAgentPodium(stats, routeMatchups) {
+    const podiumEl = document.getElementById('agent-podium-section');
+    if (!podiumEl) return;
 
-function renderBasePortsComparison(bpPorAgente, agentsList) {
-    const theadRow = document.getElementById('agent-bp-thead-row');
-    const tbody = document.getElementById('agent-bp-tbody');
-    if (!theadRow || !tbody) return;
+    const sortedAgents = Object.values(stats).sort((a, b) => {
+        // Sort by win rate and average freight
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return a.avgFreight - b.avgFreight;
+    });
 
-    if (agentsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Nenhum dado de base port encontrado.</td></tr>';
+    if (sortedAgents.length === 0) {
+        podiumEl.innerHTML = `
+            <div class="card" style="padding:30px; text-align:center; color:var(--text-muted); border-radius:12px;">
+                Nenhum agente encontrado com os filtros selecionados.
+            </div>`;
         return;
     }
 
-    // Build thead
-    let hdr = '<th>Origem</th><th>Destino</th><th>Container</th><th>Vencedor</th><th class="text-right">Melhor</th><th class="text-right">Economia</th>';
-    agentsList.forEach(ag => {
-        const fretes = (bpPorAgente[ag] || []).filter(r => r.frete != null).map(r => Number(r.frete));
-        const avg = fretes.length > 0 ? (fretes.reduce((a, b) => a + b, 0) / fretes.length).toFixed(0) : '—';
-        hdr += `<th class="text-right"><div class="agent-col-header"><span class="agent-col-header-name">${ag}</span><span class="agent-col-header-avg">Ø USD ${avg}</span></div></th>`;
-    });
-    hdr += '<th style="min-width:180px;">Observação</th>';
-    theadRow.innerHTML = hdr;
+    const first = sortedAgents[0];
+    const second = sortedAgents[1] || null;
+    const third = sortedAgents[2] || null;
 
-    // Build comparison
-    const melhores = window.melhorPorRotaSemArmador ? window.melhorPorRotaSemArmador(bpPorAgente) : {};
-    const routes = [];
-    for (const [key, info] of Object.entries(melhores)) {
-        const parts = key.split('|');
-        if (parts.length < 3) continue;
-        routes.push({ origem: parts[0], destino: parts[1], container: parts[2], key, info });
-    }
-    routes.sort((a, b) => a.origem.localeCompare(b.origem) || a.destino.localeCompare(b.destino) || a.container.localeCompare(b.container));
-
-    let html = '';
-    let lastOrigem = '';
-    routes.forEach(r => {
-        const curOrigem = r.origem.toUpperCase();
-        if (curOrigem !== lastOrigem) {
-            html += `<tr class="agent-comp-origin-header"><td colspan="${7 + agentsList.length}"><i data-lucide="navigation"></i> ${r.origem}</td></tr>`;
-            lastOrigem = curOrigem;
+    // Largest spread in entire system
+    let maxSpreadRoute = null;
+    let maxSpreadVal = 0;
+    for (const m of Object.values(routeMatchups)) {
+        if (m.spread > maxSpreadVal) {
+            maxSpreadVal = m.spread;
+            maxSpreadRoute = m;
         }
-        const info = r.info;
-        const highSav = info.economia > 200;
-        html += `<tr class="${highSav ? 'agent-comp-high-saving' : ''}">
-            <td>${r.origem}</td><td>${r.destino}</td><td><code style="font-size:11px;">${r.container}</code></td>
-            <td><span style="font-weight:600;color:var(--primary,#004b87);">${info.vencedor}</span><br><span style="font-size:10px;color:var(--text-muted);">${info.armadorVencedor || ''}</span></td>
-            <td class="text-right" style="font-weight:700;">USD ${info.melhorFrete}</td>
-            <td class="text-right" style="font-weight:700;color:${info.economia > 0 ? '#16a34a' : 'var(--text-muted)'};">${info.economia > 0 ? 'USD ' + info.economia.toFixed(0) : '—'}</td>`;
-
-        // Collect obs for this route
-        const obsMap = {};
-        const agentMap = info.porAgente || {};
-        agentsList.forEach(ag => {
-            const agInfo = agentMap[ag];
-            if (agInfo) {
-                const isWin = info.vencedor === ag;
-                const cls = isWin ? 'class="text-right agent-comp-winner-cell"' : 'class="text-right"';
-                const badge = isWin ? '<span class="agent-comp-winner-badge">VENCEDOR</span><br>' : '';
-                const arm = `<span style="font-size:10px;color:var(--text-muted);display:block;">${agInfo.armador}</span>`;
-                html += `<td ${cls}>${badge}USD ${agInfo.frete}${arm}</td>`;
-                // Find obs from raw data
-                const rawRows = (bpPorAgente[ag] || []).filter(row => {
-                    const rk = `${row.origem}|${row.destino}|${row.container}`.toUpperCase();
-                    return rk === r.key && Number(row.frete) === agInfo.frete;
-                });
-                if (rawRows.length > 0 && rawRows[0].observacao) {
-                    obsMap[ag] = rawRows[0].observacao;
-                }
-            } else {
-                html += '<td class="text-right" style="color:var(--text-muted);">-</td>';
-            }
-        });
-
-        // Obs column: show all unique obs with agent prefix
-        const obsEntries = Object.entries(obsMap);
-        let obsHtml = '';
-        if (obsEntries.length > 0) {
-            obsHtml = obsEntries.map(([ag, obs]) => {
-                const short = obs.length > 60 ? obs.substring(0, 57) + '...' : obs;
-                return `<span title="${ag}: ${obs.replace(/"/g, '&quot;')}" style="display:block;font-size:11px;line-height:1.3;margin-bottom:2px;"><strong>${ag}:</strong> ${short}</span>`;
-            }).join('');
-        }
-        html += `<td style="font-size:11px;max-width:220px;white-space:normal;">${obsHtml || '<span style="color:var(--text-muted);">—</span>'}</td>`;
-        html += '</tr>';
-    });
-
-    if (routes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="${7 + agentsList.length}" class="text-center" style="padding:30px;color:var(--text-muted);">Nenhuma rota base port encontrada.</td></tr>`;
-    } else {
-        tbody.innerHTML = html;
     }
+
+    podiumEl.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+            <!-- 🥇 O Campeão Geral -->
+            <div class="card" style="background:linear-gradient(135deg, rgba(234,179,8,0.08), rgba(245,158,11,0.03)); border:2px solid #eab308; border-radius:14px; padding:18px; position:relative; overflow:hidden; box-shadow:0 4px 16px rgba(234,179,8,0.12);">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#b45309; background:rgba(234,179,8,0.2); padding:3px 8px; border-radius:6px;">
+                            🥇 Campeão em Custo & Domínio
+                        </span>
+                        <h3 style="font-size:1.25rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${first.agent}</h3>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">${first.wins} rotas com o menor frete (${first.winRate}% de vitórias)</p>
+                    </div>
+                    <div style="font-size:2.2rem; line-height:1;">👑</div>
+                </div>
+                <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média</span>
+                        <div style="font-size:1.35rem; font-weight:900; color:#16a34a;">USD ${first.avgFreight.toLocaleString('pt-BR')}</div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Free Time Médio</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--text-primary);">${first.avgFt} dias</div>
+                    </div>
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(234,179,8,0.3); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">Melhor frete a partir de <strong>USD ${first.minFreight.toLocaleString('pt-BR')}</strong></span>
+                    <button class="btn btn-sm btn-primary" onclick="window.filterByAgentInMainPortal('${first.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Filtrar</button>
+                </div>
+            </div>
+
+            <!-- 🥈 Vice-Campeão -->
+            ${second ? `
+            <div class="card" style="background:linear-gradient(135deg, rgba(148,163,184,0.08), rgba(203,213,225,0.03)); border:1.5px solid #94a3b8; border-radius:14px; padding:18px; position:relative;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#475569; background:rgba(148,163,184,0.2); padding:3px 8px; border-radius:6px;">
+                            🥈 2º Lugar Geral
+                        </span>
+                        <h3 style="font-size:1.15rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${second.agent}</h3>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">${second.wins} rotas vencidas (${second.winRate}% vitórias)</p>
+                    </div>
+                    <div style="font-size:2rem; line-height:1;">🥈</div>
+                </div>
+                <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média</span>
+                        <div style="font-size:1.35rem; font-weight:900; color:#0284c7;">USD ${second.avgFreight.toLocaleString('pt-BR')}</div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Free Time</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--text-primary);">${second.avgFt} dias</div>
+                    </div>
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(148,163,184,0.3); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${second.quotedRoutesCount} rotas analisadas</span>
+                    <button class="btn btn-sm btn-secondary" onclick="window.filterByAgentInMainPortal('${second.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Filtrar</button>
+                </div>
+            </div>` : ''}
+
+            <!-- 💰 Maior Oportunidade de Spread / Economia -->
+            <div class="card" style="background:linear-gradient(135deg, rgba(16,185,129,0.08), rgba(5,150,105,0.03)); border:1.5px solid #10b981; border-radius:14px; padding:18px; position:relative;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#065f46; background:rgba(16,185,129,0.2); padding:3px 8px; border-radius:6px;">
+                            ⚡ Maior Economia Identificada
+                        </span>
+                        <h3 style="font-size:1.1rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">
+                            ${maxSpreadRoute ? maxSpreadRoute.key.split('[')[0] : 'Ningbo → Santos'}
+                        </h3>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">Vencedor: <strong>${maxSpreadRoute ? maxSpreadRoute.winner : 'South Cargo'}</strong></p>
+                    </div>
+                    <div style="font-size:2rem; line-height:1;">💰</div>
+                </div>
+                <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Economia Direta</span>
+                        <div style="font-size:1.35rem; font-weight:900; color:#10b981;">
+                            USD ${maxSpreadVal.toLocaleString('pt-BR')}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Menor Custo</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--text-primary);">
+                            USD ${maxSpreadRoute ? maxSpreadRoute.bestPrice.toLocaleString('pt-BR') : '—'}
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(16,185,129,0.3); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${maxSpreadRoute ? maxSpreadRoute.quotes.length : 0} agentes disputando esta rota</span>
+                    <button class="btn btn-sm btn-primary" onclick="window.switchAgentView('matchups')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Ver Disputa</button>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SEÇÃO 2B: COMPARATIVO COMPLETO (todas rotas, com filtros)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── RENDER VIEW 1: SCORECARDS DOS AGENTES ─────────────────────────────────
+function renderAgentCardsGrid(agentStats) {
+    const gridEl = document.getElementById('agent-cards-grid');
+    if (!gridEl) return;
 
-function renderFullComparison(porAgenteOverride, agentsListOverride, containerFilterOverride) {
-    const tbody = document.getElementById('agent-comp-tbody');
-    const theadRow = document.getElementById('agent-comp-thead-row');
-    if (!tbody || !theadRow) return;
+    const list = Object.values(agentStats).sort((a, b) => a.avgFreight - b.avgFreight);
 
-    let porAgente = porAgenteOverride;
-    let agentsList = agentsListOverride;
-    let containerFilterVal = containerFilterOverride;
-
-    if (!porAgente) {
-        const grouped = getGroupedAgentSnapshots();
-        porAgente = {};
-        agentsList = [];
-        for (const agent in grouped) {
-            if (grouped[agent].length > 0) {
-                agentsList.push(agent);
-                porAgente[agent] = getSnapshotDataSmart(grouped[agent][0]);
-            }
-        }
-        agentsList.sort();
-        const containerFilterVal = (document.getElementById('agent-dash-container-filter')?.value || '').toUpperCase();
-        const obsFilter = document.getElementById('agent-dash-obs-filter')?.value || 'all';
-        
-        const filtered = {};
-        for (const [ag, rows] of Object.entries(porAgente)) {
-            let f = rows;
-            if (containerFilterVal) f = f.filter(r => (r.container || '').toUpperCase() === containerFilterVal);
-            f = filterRowsByObs(f, obsFilter, 'all');
-            if (f.length > 0) filtered[ag] = f;
-        }
-        porAgente = filtered;
-        agentsList = Object.keys(porAgente).sort();
-    }
-
-    const filteredAgents = Object.keys(porAgente).sort();
-    if (filteredAgents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:40px;color:var(--text-muted);">Nenhum dado disponível.</td></tr>';
+    if (list.length === 0) {
+        gridEl.innerHTML = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">Nenhum agente localizado.</div>`;
         return;
     }
 
-    // Build thead
-    let hdr = '<th style="min-width:90px;">Origem</th><th style="min-width:90px;">Destino</th><th>Container</th><th>Vencedor</th><th class="text-right">Melhor</th><th class="text-right">Economia</th>';
-    filteredAgents.forEach(ag => {
-        const fretes = (porAgente[ag] || []).filter(r => r.frete != null).map(r => Number(r.frete));
-        const avg = fretes.length > 0 ? (fretes.reduce((a, b) => a + b, 0) / fretes.length).toFixed(0) : '—';
-        hdr += `<th class="text-right"><div class="agent-col-header"><span class="agent-col-header-name">${ag}</span><span class="agent-col-header-avg">Ø USD ${avg}</span></div></th>`;
-    });
-    hdr += '<th style="min-width:180px;">Observação</th>';
-    theadRow.innerHTML = hdr;
+    gridEl.innerHTML = list.map((st, idx) => {
+        const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+        const carriersBadges = st.carriers.slice(0, 4).map(c => 
+            `<span style="background:var(--bg-secondary); border:1px solid var(--card-border); padding:2px 6px; border-radius:4px; font-size:0.68rem; font-weight:600; color:var(--text-secondary);">${c}</span>`
+        ).join(' ');
 
-    // Build route comparison
-    const melhores = window.melhorPorRotaSemArmador ? window.melhorPorRotaSemArmador(porAgente) : {};
-    const allRoutes = [];
-    for (const [key, info] of Object.entries(melhores)) {
-        const parts = key.split('|');
-        if (parts.length < 3) continue;
-        allRoutes.push({ origem: parts[0], destino: parts[1], container: parts[2], key, info });
-    }
+        const topWonRoutesHtml = st.wonRoutes.slice(0, 2).map(r => `
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; padding:4px 0; border-bottom:1px solid rgba(0,0,0,0.03);">
+                <span style="color:var(--text-secondary); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;">${r.route.split('[')[0]}</span>
+                <span style="font-weight:700; color:#16a34a;">USD ${r.price.toLocaleString('pt-BR')}</span>
+            </div>
+        `).join('') || '<div style="font-size:0.72rem; color:var(--text-muted); font-style:italic; padding:4px 0;">Nenhuma rota com menor preço absoluto</div>';
 
-    // Text filters
-    const filterOrigem = (document.getElementById('agent-comp-filter-origem')?.value || '').trim().toLowerCase();
-    const filterDestino = (document.getElementById('agent-comp-filter-destino')?.value || '').trim().toLowerCase();
+        return `
+            <div class="card agent-pro-card" style="padding:18px; border-radius:14px; border:1px solid var(--card-border); background:var(--card-bg); display:flex; flex-direction:column; justify-content:space-between; transition:transform 0.2s, box-shadow 0.2s;">
+                <div>
+                    <!-- Header -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:28px; height:28px; border-radius:50%; background:var(--bg-secondary); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.85rem; color:var(--text-primary);">${rankMedal}</span>
+                            <h4 style="margin:0; font-size:1.02rem; font-weight:800; color:var(--text-primary); letter-spacing:-0.2px;">${st.agent}</h4>
+                        </div>
+                        <span style="background:${st.winRate >= 30 ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.1)'}; color:${st.winRate >= 30 ? '#10b981' : '#3b82f6'}; font-weight:700; font-size:0.72rem; padding:3px 8px; border-radius:20px;">
+                            ${st.wins} vitórias (${st.winRate}%)
+                        </span>
+                    </div>
 
-    allRoutes.sort((a, b) => a.origem.localeCompare(b.origem) || a.destino.localeCompare(b.destino) || a.container.localeCompare(b.container));
+                    <!-- Metrics Price & Free Time -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:var(--bg-secondary); padding:10px 12px; border-radius:10px; margin-bottom:12px;">
+                        <div>
+                            <span style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; display:block;">Compra Média</span>
+                            <span style="font-size:1.2rem; font-weight:900; color:#16a34a;">USD ${st.avgFreight.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div>
+                            <span style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; display:block;">Free Time Médio</span>
+                            <span style="font-size:1.05rem; font-weight:800; color:var(--text-primary);">${st.avgFt} dias</span>
+                        </div>
+                    </div>
 
-    let html = '';
-    let lastOrigem = '';
-    let rowCount = 0;
+                    <!-- Win Rate Visual Progress Bar -->
+                    <div style="margin-bottom:12px;">
+                        <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">
+                            <span>Dominância em Rotas</span>
+                            <span>${st.wins} de ${st.quotedRoutesCount} rotas cotadas</span>
+                        </div>
+                        <div style="height:6px; background:var(--bg-secondary); border-radius:3px; overflow:hidden;">
+                            <div style="width:${Math.min(100, Math.max(5, st.winRate))}%; height:100%; background:linear-gradient(90deg, #10b981, #0284c7); border-radius:3px;"></div>
+                        </div>
+                    </div>
 
-    allRoutes.forEach(r => {
-        if (filterOrigem && !r.origem.toLowerCase().includes(filterOrigem)) return;
-        if (filterDestino && !r.destino.toLowerCase().includes(filterDestino)) return;
+                    <!-- Best Winning Routes -->
+                    <div style="margin-bottom:14px;">
+                        <span style="font-size:0.68rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px; display:block; margin-bottom:4px;">Rotas mais competitivas:</span>
+                        ${topWonRoutesHtml}
+                    </div>
+                </div>
 
-        const curOrigem = r.origem.toUpperCase();
-        if (curOrigem !== lastOrigem) {
-            html += `<tr class="agent-comp-origin-header"><td colspan="${7 + filteredAgents.length}"><i data-lucide="navigation"></i> ${r.origem}</td></tr>`;
-            lastOrigem = curOrigem;
-        }
-
-        const info = r.info;
-        const highSav = info.economia > 200;
-        html += `<tr class="${highSav ? 'agent-comp-high-saving' : ''}">
-            <td>${r.origem}</td><td>${r.destino}</td><td><code style="font-size:11px;">${r.container}</code></td>
-            <td><span style="font-weight:600;color:var(--primary,#004b87);">${info.vencedor}</span><br><span style="font-size:10px;color:var(--text-muted);">${info.armadorVencedor || ''}</span></td>
-            <td class="text-right" style="font-weight:700;">USD ${info.melhorFrete}</td>
-            <td class="text-right" style="font-weight:700;color:${info.economia > 0 ? '#16a34a' : 'var(--text-muted)'};">${info.economia > 0 ? 'USD ' + info.economia.toFixed(0) : '—'}</td>`;
-
-        const obsMap = {};
-        const agentMap = info.porAgente || {};
-        filteredAgents.forEach(ag => {
-            const agInfo = agentMap[ag];
-            if (agInfo) {
-                const isWin = info.vencedor === ag;
-                const cls = isWin ? 'class="text-right agent-comp-winner-cell"' : 'class="text-right"';
-                const badge = isWin ? '<span class="agent-comp-winner-badge">VENCEDOR</span><br>' : '';
-                const arm = `<span style="font-size:10px;color:var(--text-muted);display:block;">${agInfo.armador}</span>`;
-                html += `<td ${cls}>${badge}USD ${agInfo.frete}${arm}</td>`;
-                // Find obs
-                const rawRows = (porAgente[ag] || []).filter(row => {
-                    const rk = `${row.origem}|${row.destino}|${row.container}`.toUpperCase();
-                    return rk === r.key && Number(row.frete) === agInfo.frete;
-                });
-                if (rawRows.length > 0 && rawRows[0].observacao) obsMap[ag] = rawRows[0].observacao;
-            } else {
-                html += '<td class="text-right" style="color:var(--text-muted);">-</td>';
-            }
-        });
-
-        // Obs column
-        const obsEntries = Object.entries(obsMap);
-        let obsHtml = '';
-        if (obsEntries.length > 0) {
-            obsHtml = obsEntries.map(([ag, obs]) => {
-                const short = obs.length > 60 ? obs.substring(0, 57) + '...' : obs;
-                return `<span title="${ag}: ${obs.replace(/"/g, '&quot;')}" style="display:block;font-size:11px;line-height:1.3;margin-bottom:2px;"><strong>${ag}:</strong> ${short}</span>`;
-            }).join('');
-        }
-        html += `<td style="font-size:11px;max-width:220px;white-space:normal;">${obsHtml || '<span style="color:var(--text-muted);">—</span>'}</td>`;
-        html += '</tr>';
-        rowCount++;
-    });
-
-    if (rowCount === 0) {
-        tbody.innerHTML = `<tr><td colspan="${7 + filteredAgents.length}" class="text-center" style="padding:30px;color:var(--text-muted);">Nenhuma rota encontrada.</td></tr>`;
-    } else {
-        tbody.innerHTML = html;
-    }
+                <!-- Footer with Carriers and Action Button -->
+                <div>
+                    <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; align-items:center;">
+                        <span style="font-size:0.68rem; color:var(--text-muted); font-weight:600; margin-right:2px;">Armadores:</span>
+                        ${carriersBadges}
+                    </div>
+                    <button class="btn btn-outline" onclick="window.filterByAgentInMainPortal('${st.agent}')" style="width:100%; height:34px; font-size:0.78rem; font-weight:600; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;">
+                        <i data-lucide="search" style="width:13px; height:13px;"></i> Ver Tarifas deste Agente
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SEÇÃO 3: LEADERBOARD (base ports focused)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── RENDER VIEW 2: DISPUTA POR ROTA (MATCHUPS) ────────────────────────────
+function renderRouteMatchupsView(routeMatchups) {
+    const container = document.getElementById('agent-matchups-container');
+    if (!container) return;
 
-function renderLeaderboard(bpPorAgente, grouped) {
+    const list = Object.values(routeMatchups).sort((a, b) => b.spread - a.spread);
+
+    if (list.length === 0) {
+        container.innerHTML = `<div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">Nenhuma rota com cotações múltiplas encontrada.</div>`;
+        return;
+    }
+
+    container.innerHTML = list.map(m => {
+        const quotesBars = m.quotes.map(q => {
+            const isWinner = q.agente === m.winner;
+            const diff = q.frete - m.bestPrice;
+            const barWidthPercent = Math.max(15, Math.min(100, Math.round((m.bestPrice / q.frete) * 100)));
+            const barColor = isWinner ? '#10b981' : diff <= 200 ? '#3b82f6' : '#f59e0b';
+
+            return `
+                <div style="display:grid; grid-template-columns: 180px 1fr 140px; gap:12px; align-items:center; padding:6px 0;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        ${isWinner ? '<span style="font-size:0.9rem;">👑</span>' : '<span style="width:16px;"></span>'}
+                        <span style="font-size:0.82rem; font-weight:${isWinner ? '800' : '600'}; color:${isWinner ? '#10b981' : 'var(--text-primary)'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                            ${q.agente}
+                        </span>
+                        <span style="font-size:0.68rem; color:var(--text-muted); background:var(--bg-secondary); padding:1px 5px; border-radius:4px;">${q.armador}</span>
+                    </div>
+
+                    <!-- Visual Comparison Bar -->
+                    <div style="background:var(--bg-secondary); height:14px; border-radius:7px; overflow:hidden; position:relative;">
+                        <div style="width:${barWidthPercent}%; height:100%; background:${barColor}; border-radius:7px; transition:width 0.3s ease;"></div>
+                    </div>
+
+                    <!-- Price & Diff -->
+                    <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px;">
+                        <span style="font-size:0.9rem; font-weight:800; color:${isWinner ? '#10b981' : 'var(--text-primary)'};">
+                            USD ${q.frete.toLocaleString('pt-BR')}
+                        </span>
+                        ${diff > 0 ? `<span style="font-size:0.72rem; color:#ef4444; font-weight:600;">+USD ${diff.toLocaleString('pt-BR')}</span>` : `<span style="font-size:0.72rem; color:#10b981; font-weight:700; background:rgba(16,185,129,0.12); padding:1px 6px; border-radius:10px;">Melhor</span>`}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="card" style="padding:16px 20px; border-radius:14px; border:1px solid var(--card-border); background:var(--card-bg);">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--card-border);">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="background:rgba(0,75,135,0.1); color:var(--primary); font-weight:800; font-size:0.78rem; padding:4px 10px; border-radius:6px; letter-spacing:0.5px;">
+                            ${m.container}
+                        </span>
+                        <h4 style="margin:0; font-size:1.05rem; font-weight:800; color:var(--text-primary);">
+                            ${m.origem} → ${m.destino}
+                        </h4>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:14px;">
+                        <span style="font-size:0.78rem; color:var(--text-secondary);">
+                            Vencedor: <strong style="color:#10b981;">${m.winner}</strong> (USD ${m.bestPrice.toLocaleString('pt-BR')})
+                        </span>
+                        ${m.spread > 0 ? `
+                        <span style="background:rgba(16,185,129,0.15); color:#065f46; font-weight:800; font-size:0.75rem; padding:4px 10px; border-radius:8px;">
+                            Economia de até USD ${m.spread.toLocaleString('pt-BR')}
+                        </span>` : ''}
+                    </div>
+                </div>
+
+                <div style="display:flex; flex-direction:column;">
+                    ${quotesBars}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ── RENDER VIEW 3: LEADERBOARD TABLE ──────────────────────────────────────
+function renderAgentLeaderboardTable(agentStats) {
     const tbody = document.getElementById('agent-leaderboard-tbody');
     if (!tbody) return;
 
-    const agentsList = Object.keys(bpPorAgente);
-    if (agentsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-muted);">Sem dados base port.</td></tr>';
+    const list = Object.values(agentStats).sort((a, b) => a.avgFreight - b.avgFreight);
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding:30px; color:var(--text-muted);">Nenhum dado encontrado.</td></tr>`;
         return;
     }
 
-    const melhores = window.melhorPorRotaSemArmador ? window.melhorPorRotaSemArmador(bpPorAgente) : {};
-    const totalRoutes = Object.keys(melhores).length;
+    tbody.innerHTML = list.map((st, idx) => {
+        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+        const carriersText = st.carriers.slice(0, 3).join(', ') || 'Vários';
 
-    const stats = [];
-    agentsList.forEach(ag => {
-        const rows = bpPorAgente[ag] || [];
-        const fretes = rows.filter(r => r.frete != null && !isNaN(r.frete)).map(r => Number(r.frete));
-        const avgFrete = fretes.length > 0 ? fretes.reduce((a, b) => a + b, 0) / fretes.length : Infinity;
-        const uniqueRoutes = new Set();
-        const uniqueArmadores = new Set();
-        let victories = 0;
-        rows.forEach(r => {
-            uniqueRoutes.add(`${r.origem}|${r.destino}|${r.container}`.toUpperCase());
-            if (r.armador) uniqueArmadores.add(r.armador.toUpperCase());
-        });
-        for (const [k, info] of Object.entries(melhores)) { if (info.vencedor === ag) victories++; }
-        const victoryPct = totalRoutes > 0 ? (victories / totalRoutes) * 100 : 0;
-        stats.push({ agente: ag, avgFrete: avgFrete === Infinity ? null : avgFrete, victoryPct, rotas: uniqueRoutes.size, armadores: uniqueArmadores.size });
-    });
-
-    stats.sort((a, b) => {
-        if (a.avgFrete === null) return 1;
-        if (b.avgFrete === null) return -1;
-        return a.avgFrete - b.avgFrete;
-    });
-
-    const validFretes = stats.filter(s => s.avgFrete !== null).map(s => s.avgFrete);
-    const minF = Math.min(...validFretes);
-    const maxF = Math.max(...validFretes);
-
-    let html = '';
-    stats.forEach((s, idx) => {
-        const pos = idx + 1;
-        let posClass = 'agent-lb-pos-other';
-        let posText = pos;
-        if (pos === 1) { posClass = 'agent-lb-pos-1'; posText = '🏆'; }
-        else if (pos === 2) posClass = 'agent-lb-pos-2';
-        else if (pos === 3) posClass = 'agent-lb-pos-3';
-
-        const avgText = s.avgFrete !== null ? `USD ${s.avgFrete.toFixed(0)}` : '—';
-        let barPct = 0, barClass = 'agent-lb-bar-fill--mid';
-        if (s.avgFrete !== null && maxF > minF) {
-            barPct = 100 - ((s.avgFrete - minF) / (maxF - minF)) * 80;
-            if (pos === 1) barClass = 'agent-lb-bar-fill--best';
-            else if (pos >= stats.length - 1) barClass = 'agent-lb-bar-fill--worst';
-        } else if (s.avgFrete !== null) { barPct = 100; barClass = 'agent-lb-bar-fill--best'; }
-
-        html += `<tr>
-            <td class="text-center"><span class="agent-lb-pos ${posClass}">${posText}</span></td>
-            <td style="font-weight:700;font-size:14px;">${s.agente}</td>
-            <td><div class="agent-lb-freight-bar"><span class="agent-lb-freight-value">${avgText}</span><div class="agent-lb-bar-track"><div class="agent-lb-bar-fill ${barClass}" style="width:${barPct.toFixed(0)}%;"></div></div></div></td>
-            <td class="text-center" style="font-weight:600;">${s.victoryPct.toFixed(1)}%</td>
-            <td class="text-center">${s.rotas}</td>
-            <td class="text-center">${s.armadores}</td>
-        </tr>`;
-    });
-    tbody.innerHTML = html;
+        return `
+            <tr style="border-bottom:1px solid var(--card-border);">
+                <td class="text-center" style="font-weight:800; font-size:0.9rem; padding:10px;">${medal}</td>
+                <td style="padding:10px; font-weight:700; color:var(--text-primary);">${st.agent}</td>
+                <td class="text-right" style="padding:10px; font-weight:800; color:#16a34a; font-size:0.95rem;">
+                    USD ${st.avgFreight.toLocaleString('pt-BR')}
+                </td>
+                <td class="text-center" style="padding:10px;">
+                    <span style="background:${st.winRate >= 30 ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.1)'}; color:${st.winRate >= 30 ? '#10b981' : '#3b82f6'}; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px;">
+                        ${st.winRate}% (${st.wins} vitórias)
+                    </span>
+                </td>
+                <td class="text-center" style="padding:10px; font-weight:600; color:var(--text-secondary);">${st.quotedRoutesCount} rotas</td>
+                <td class="text-center" style="padding:10px; font-size:0.78rem; color:var(--text-muted);">${carriersText}</td>
+                <td class="text-center" style="padding:10px;">
+                    <button class="btn btn-sm btn-outline" onclick="window.filterByAgentInMainPortal('${st.agent}')" style="padding:4px 12px; font-size:0.75rem; border-radius:6px; cursor:pointer;">
+                        Filtrar
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TIMELINE
-// ═══════════════════════════════════════════════════════════════════════════
+// ── INITIALIZATION ────────────────────────────────────────────────────────
+function initDashboard() {
+    ['agent-dash-container-filter', 'agent-dash-obs-filter'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => renderDashboardTab());
+    });
+}
 
-function renderTimeline(grouped) {
-    const historyLog = document.getElementById('agent-dash-history-log');
-    if (!historyLog) return;
-    const allDates = new Set();
-    for (const agent in grouped) { grouped[agent].forEach(h => allDates.add(h.date)); }
-    const sortedDates = Array.from(allDates).sort((a, b) => b.localeCompare(a));
-    let html = '';
-    sortedDates.forEach(date => {
-        const dayAgents = [];
-        for (const agent in grouped) { if (grouped[agent].some(h => h.date === date)) dayAgents.push(agent); }
-        if (dayAgents.length > 0) {
-            html += `<div class="agent-timeline-item">
-                <div class="agent-timeline-date">${formatDateBR(date)}</div>
-                <div class="agent-timeline-content">Tarifários atualizados para: ${dayAgents.map(a => `<strong>${a}</strong>`).join(', ')}.</div>
-            </div>`;
+// Auto-run when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        initDashboard();
+        if (window.db && typeof window.db.loadAllSnapshots === 'function') {
+            window.db.loadAllSnapshots().then(() => renderDashboardTab());
         }
     });
-    historyLog.innerHTML = html || '<p style="color:var(--text-muted);text-align:center;padding:20px;">Nenhum histórico registrado.</p>';
+} else {
+    initDashboard();
+    if (window.db && typeof window.db.loadAllSnapshots === 'function') {
+        window.db.loadAllSnapshots().then(() => renderDashboardTab());
+    }
 }
 
-function formatDateBR(iso) {
-    if (!iso) return '';
-    const parts = iso.split('-');
-    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    return iso;
-}
-
-document.addEventListener('DOMContentLoaded', () => { initDashboard(); });
+window.renderDashboardTab = renderDashboardTab;

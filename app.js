@@ -859,38 +859,48 @@ async function fetchOperationalData(showOverlay = true) {
     if (showOverlay && btnSyncApi) {
         btnSyncApi.classList.add('loading');
         btnSyncApi.disabled = true;
-        if (syncBtnText) syncBtnText.textContent = 'Sincronizando...';
-        showToast('Sincronizando dados operacionais com a API em tempo real... Isso pode levar alguns instantes.', 'info', 0);
+        if (syncBtnText) syncBtnText.textContent = 'Carregando...';
     }
     
     try {
         let rawDataList = null;
         let lastMod = null;
         
-        // Tenta a API direta da Mond primeiro
+        // 1. Sempre lê o cache estático otimizado primeiro (sub-segundo, ~1MB)
         try {
-            const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/operacional', {
-                headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' }
-            });
-            if (apiRes.ok) {
-                const apiJson = await apiRes.json();
-                rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
-                lastMod = new Date().toUTCString();
-                console.log('[API Direct] Operacional sincronizado via API:', rawDataList.length);
+            const response = await fetch('./operational_cache.json', { method: 'GET' });
+            if (response.ok) {
+                lastMod = response.headers.get('Last-Modified') || new Date().toUTCString();
+                const json = await response.json();
+                const list = Array.isArray(json) ? json : (json.data || json.operational || []);
+                if (list && list.length > 0) {
+                    rawDataList = list;
+                    console.log('[Operational] Cache local carregado com sucesso:', rawDataList.length);
+                }
             }
-        } catch (netErr) {
-            console.warn('[API Direct] Falha na chamada direta, usando cache:', netErr.message);
+        } catch (cacheErr) {
+            console.warn('[Operational] Falha ao ler cache local:', cacheErr.message);
         }
         
-        // Se a chamada direta falhou ou é carga inicial em background, lê o cache estático
+        // 2. Se o cache não existia e o usuário solicitou sync explícito, tenta a API com timeout rápido de 5s
         if (!rawDataList || rawDataList.length === 0) {
-            const response = await fetch('./operational_cache.json', { method: 'GET' });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            try {
+                const ctrl = new AbortController();
+                const tId = setTimeout(() => ctrl.abort(), 5000);
+                const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/operacional', {
+                    headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' },
+                    signal: ctrl.signal
+                });
+                clearTimeout(tId);
+                if (apiRes.ok) {
+                    const apiJson = await apiRes.json();
+                    rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
+                    lastMod = new Date().toUTCString();
+                    console.log('[API Direct] Operacional sincronizado via API:', rawDataList.length);
+                }
+            } catch (netErr) {
+                console.warn('[API Direct] Falha na chamada direta:', netErr.message);
             }
-            lastMod = response.headers.get('Last-Modified');
-            const json = await response.json();
-            rawDataList = Array.isArray(json) ? json : (json.data || json.operational || json.commercial || []);
         }
         
         if (!Array.isArray(rawDataList)) {
@@ -1058,7 +1068,7 @@ async function fetchOperationalData(showOverlay = true) {
         if (showOverlay) {
             btnSyncApi.classList.remove('loading');
             btnSyncApi.disabled = false;
-            if (syncBtnText) syncBtnText.textContent = 'Sincronizar API';
+            if (syncBtnText) syncBtnText.textContent = 'Sincronizar Operacional';
         }
     }
 }
@@ -1081,38 +1091,48 @@ async function fetchCommercialData(showOverlay = true) {
     if (showOverlay && btnSyncComercial) {
         btnSyncComercial.classList.add('loading');
         btnSyncComercial.disabled = true;
-        if (syncBtnText) syncBtnText.textContent = 'Sincronizando...';
-        showToast('Sincronizando dados comerciais com a API em tempo real... Isso pode levar alguns instantes.', 'info', 0);
+        if (syncBtnText) syncBtnText.textContent = 'Carregando...';
     }
     
     try {
         let rawDataList = null;
         let lastMod = null;
         
-        // Tenta a API direta da Mond primeiro
+        // 1. Sempre lê o cache estático otimizado primeiro (sub-segundo)
         try {
-            const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/comercial', {
-                headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' }
-            });
-            if (apiRes.ok) {
-                const apiJson = await apiRes.json();
-                rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
-                lastMod = new Date().toUTCString();
-                console.log('[API Direct] Comercial sincronizado via API:', rawDataList.length);
+            const response = await fetch('./commercial_cache.json', { method: 'GET' });
+            if (response.ok) {
+                lastMod = response.headers.get('Last-Modified') || new Date().toUTCString();
+                const json = await response.json();
+                const list = Array.isArray(json) ? json : (json.data || json.commercial || []);
+                if (list && list.length > 0) {
+                    rawDataList = list;
+                    console.log('[Commercial] Cache local carregado com sucesso:', rawDataList.length);
+                }
             }
-        } catch (netErr) {
-            console.warn('[API Direct] Falha na chamada direta comercial, usando cache:', netErr.message);
+        } catch (cacheErr) {
+            console.warn('[Commercial] Falha ao ler cache local:', cacheErr.message);
         }
         
-        // Se a chamada direta falhou ou é carga inicial em background, lê o cache estático
+        // 2. Se o cache não existia e o usuário solicitou sync explícito, tenta a API com timeout rápido de 5s
         if (!rawDataList || rawDataList.length === 0) {
-            const response = await fetch('./commercial_cache.json', { method: 'GET' });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            try {
+                const ctrl = new AbortController();
+                const tId = setTimeout(() => ctrl.abort(), 5000);
+                const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/comercial', {
+                    headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' },
+                    signal: ctrl.signal
+                });
+                clearTimeout(tId);
+                if (apiRes.ok) {
+                    const apiJson = await apiRes.json();
+                    rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
+                    lastMod = new Date().toUTCString();
+                    console.log('[API Direct] Comercial sincronizado via API:', rawDataList.length);
+                }
+            } catch (netErr) {
+                console.warn('[API Direct] Falha na chamada direta comercial:', netErr.message);
             }
-            lastMod = response.headers.get('Last-Modified');
-            const json = await response.json();
-            rawDataList = Array.isArray(json) ? json : (json.data || json.commercial || json.operational || []);
         }
         
         if (!Array.isArray(rawDataList)) {
@@ -8173,8 +8193,15 @@ function getAiContext() {
 }
 
 async function sendChatMessageToAi(userMessage) {
-    const geminiKey = localStorage.getItem('mond_gemini_api_key') || 'AQ.Ab8RN6J0PYZAkHWq43h80TYstW_rvvbIp3gu3KUs9_aMq1u81w';
+    const rawKey = localStorage.getItem('mond_gemini_api_key') || '';
+    const geminiKey = (rawKey && !rawKey.startsWith('AQ.')) ? rawKey.trim() : '';
     const typingIndicator = document.getElementById('ai-chat-typing');
+    
+    if (!geminiKey) {
+        if (typingIndicator) typingIndicator.style.display = 'none';
+        appendChatMessage('bot', `🔑 <strong>Chave API do Gemini Necessária</strong><br>Para ativar as análises com IA no portal, clique no botão <strong>"Chave API"</strong> no canto superior e cole sua chave do Google AI Studio (gratuita em <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;">aistudio.google.com</a>).`);
+        return;
+    }
     
     if (typingIndicator) typingIndicator.style.display = 'flex';
     
@@ -8399,20 +8426,21 @@ window.deleteChatSession = function() {
 };
 
 window.configureGeminiApiKey = function() {
-    const currentKey = localStorage.getItem('mond_gemini_api_key') || 'AQ.Ab8RN6J0PYZAkHWq43h80TYstW_rvvbIp3gu3KUs9_aMq1u81w';
-    const newKey = prompt("Cole sua Chave API do Gemini aqui:", currentKey);
+    const rawKey = localStorage.getItem('mond_gemini_api_key') || '';
+    const currentKey = (rawKey && !rawKey.startsWith('AQ.')) ? rawKey : '';
+    const newKey = prompt("Cole sua Chave API do Gemini (Google AI Studio) aqui:", currentKey);
     if (newKey !== null) {
         const trimmed = newKey.trim();
-        if (trimmed) {
+        if (trimmed && !trimmed.startsWith('AQ.')) {
             localStorage.setItem('mond_gemini_api_key', trimmed);
             const builderInput = document.getElementById('builder-gemini-key');
             if (builderInput) builderInput.value = trimmed;
-            showToast("Chave API atualizada com sucesso!", "success", 2000);
+            showToast("✅ Chave API Gemini ativada com sucesso!", "success", 3000);
         } else {
             localStorage.removeItem('mond_gemini_api_key');
             const builderInput = document.getElementById('builder-gemini-key');
             if (builderInput) builderInput.value = '';
-            showToast("Restaurada chave API padrão.", "info", 2000);
+            showToast("ℹ️ Chave removida.", "info", 2000);
         }
     }
 };
