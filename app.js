@@ -856,76 +856,43 @@ function pollSyncStatus(type, onComplete, onError) {
 
 async function fetchOperationalData(showOverlay = true) {
     const syncBtnText = btnSyncApi ? btnSyncApi.querySelector('span') : null;
-    if (showOverlay) {
+    if (showOverlay && btnSyncApi) {
         btnSyncApi.classList.add('loading');
         btnSyncApi.disabled = true;
         if (syncBtnText) syncBtnText.textContent = 'Sincronizando...';
         showToast('Sincronizando dados operacionais com a API em tempo real... Isso pode levar alguns instantes.', 'info', 0);
-        
-        try {
-            const syncResponse = await fetch('/api/sync-operational');
-            if (!syncResponse.ok) {
-                throw new Error("Erro ao iniciar a sincronização no servidor.");
-            }
-            const syncRes = await syncResponse.json();
-            if (!syncRes.success) {
-                throw new Error(syncRes.message || "Erro desconhecido ao iniciar sincronização.");
-            }
-            
-            // Poll for status
-            pollSyncStatus('operational', 
-                async (timestamp) => {
-                    try {
-                        // Reload data from cache (now updated)
-                        await fetchOperationalData(false);
-                        
-                        // Explicitly set the status to live with the new timestamp
-                        setSyncStatus('operational', 'live', timestamp);
-                        
-                        btnSyncApi.classList.remove('loading');
-                        btnSyncApi.disabled = false;
-                        if (syncBtnText) syncBtnText.textContent = 'Sincronizar Operacional';
-                        hideToast();
-                        showToast(`✅ Sincronização operacional concluída em tempo real!`, 'success', 4000);
-                    } catch (e) {
-                        btnSyncApi.classList.remove('loading');
-                        btnSyncApi.disabled = false;
-                        if (syncBtnText) syncBtnText.textContent = 'Sincronizar Operacional';
-                        hideToast();
-                        showToast("❌ Erro ao ler novos dados operacionais.", 'error', 6000);
-                    }
-                },
-                (error) => {
-                    btnSyncApi.classList.remove('loading');
-                    btnSyncApi.disabled = false;
-                    if (syncBtnText) syncBtnText.textContent = 'Sincronizar Operacional';
-                    hideToast();
-                    showToast(`❌ Erro no download: ${error.message}`, 'error', 6000);
-                }
-            );
-        } catch (err) {
-            btnSyncApi.classList.remove('loading');
-            btnSyncApi.disabled = false;
-            if (syncBtnText) syncBtnText.textContent = 'Sincronizar Operacional';
-            hideToast();
-            showToast(`❌ Erro ao iniciar sincronização: ${err.message}`, 'error', 6000);
-        }
-        return;
     }
     
-    // Background/cached load
     try {
+        let rawDataList = null;
         let lastMod = null;
-        let url = './operational_cache.json';
-        const response = await fetch(url, { method: 'GET' });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        
+        // Tenta a API direta da Mond primeiro
+        try {
+            const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/operacional', {
+                headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' }
+            });
+            if (apiRes.ok) {
+                const apiJson = await apiRes.json();
+                rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
+                lastMod = new Date().toUTCString();
+                console.log('[API Direct] Operacional sincronizado via API:', rawDataList.length);
+            }
+        } catch (netErr) {
+            console.warn('[API Direct] Falha na chamada direta, usando cache:', netErr.message);
         }
         
-        lastMod = response.headers.get('Last-Modified');
+        // Se a chamada direta falhou ou é carga inicial em background, lê o cache estático
+        if (!rawDataList || rawDataList.length === 0) {
+            const response = await fetch('./operational_cache.json', { method: 'GET' });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            lastMod = response.headers.get('Last-Modified');
+            const json = await response.json();
+            rawDataList = Array.isArray(json) ? json : (json.data || json.operational || json.commercial || []);
+        }
         
-        const json = await response.json();
-        const rawDataList = Array.isArray(json) ? json : (json.data || json.operational || json.commercial || []);
         if (!Array.isArray(rawDataList)) {
             throw new Error("Resposta da API inválida.");
         }
@@ -1116,73 +1083,40 @@ async function fetchCommercialData(showOverlay = true) {
         btnSyncComercial.disabled = true;
         if (syncBtnText) syncBtnText.textContent = 'Sincronizando...';
         showToast('Sincronizando dados comerciais com a API em tempo real... Isso pode levar alguns instantes.', 'info', 0);
-        
-        try {
-            const syncResponse = await fetch('/api/sync-commercial');
-            if (!syncResponse.ok) {
-                throw new Error("Erro ao iniciar a sincronização comercial no servidor.");
-            }
-            const syncRes = await syncResponse.json();
-            if (!syncRes.success) {
-                throw new Error(syncRes.message || "Erro desconhecido ao iniciar sincronização.");
-            }
-            
-            // Poll for status
-            pollSyncStatus('commercial', 
-                async (timestamp) => {
-                    try {
-                        // Reload data from cache (now updated)
-                        await fetchCommercialData(false);
-                        
-                        // Explicitly set the status to live with the new timestamp
-                        setSyncStatus('commercial', 'live', timestamp);
-                        
-                        btnSyncComercial.classList.remove('loading');
-                        btnSyncComercial.disabled = false;
-                        if (syncBtnText) syncBtnText.textContent = 'Sincronizar Comercial';
-                        hideToast();
-                        showToast(`✅ Sincronização comercial concluída em tempo real!`, 'success', 4000);
-                    } catch (e) {
-                        btnSyncComercial.classList.remove('loading');
-                        btnSyncComercial.disabled = false;
-                        if (syncBtnText) syncBtnText.textContent = 'Sincronizar Comercial';
-                        hideToast();
-                        showToast("❌ Erro ao ler novos dados comerciais.", 'error', 6000);
-                    }
-                },
-                (error) => {
-                    btnSyncComercial.classList.remove('loading');
-                    btnSyncComercial.disabled = false;
-                    if (syncBtnText) syncBtnText.textContent = 'Sincronizar Comercial';
-                    hideToast();
-                    showToast(`❌ Erro no download comercial: ${error.message}`, 'error', 6000);
-                }
-            );
-        } catch (err) {
-            btnSyncComercial.classList.remove('loading');
-            btnSyncComercial.disabled = false;
-            if (syncBtnText) syncBtnText.textContent = 'Sincronizar Comercial';
-            hideToast();
-            showToast(`❌ Erro ao iniciar sincronização comercial: ${err.message}`, 'error', 6000);
-        }
-        return;
     }
     
-    // Background/cached load
     try {
+        let rawDataList = null;
         let lastMod = null;
-        let url = './commercial_cache.json';
-        const response = await fetch(url, { method: 'GET' });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        
+        // Tenta a API direta da Mond primeiro
+        try {
+            const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/comercial', {
+                headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' }
+            });
+            if (apiRes.ok) {
+                const apiJson = await apiRes.json();
+                rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
+                lastMod = new Date().toUTCString();
+                console.log('[API Direct] Comercial sincronizado via API:', rawDataList.length);
+            }
+        } catch (netErr) {
+            console.warn('[API Direct] Falha na chamada direta comercial, usando cache:', netErr.message);
         }
         
-        lastMod = response.headers.get('Last-Modified');
+        // Se a chamada direta falhou ou é carga inicial em background, lê o cache estático
+        if (!rawDataList || rawDataList.length === 0) {
+            const response = await fetch('./commercial_cache.json', { method: 'GET' });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            lastMod = response.headers.get('Last-Modified');
+            const json = await response.json();
+            rawDataList = Array.isArray(json) ? json : (json.data || json.commercial || json.operational || []);
+        }
         
-        const json = await response.json();
-        const rawDataList = Array.isArray(json) ? json : (json.data || json.commercial || json.operational || []);
         if (!Array.isArray(rawDataList)) {
-            throw new Error("Resposta da API inválida.");
+            throw new Error("Resposta da API comercial inválida.");
         }
         
         const parseApiDate = (dt) => {
@@ -4158,17 +4092,20 @@ function renderFretesMedios(data) {
         const maxVal = Math.max(...allAgents.map(a => a[1]));
         const minVal = Math.min(...allAgents.map(a => a[1]));
         html += '<div style="max-height:260px; overflow-y:auto;">';
+        const currentActiveAgents = (colFilters.agente || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
         allAgents.forEach(([name, avg]) => {
             const displayName = name.length > 25 ? name.substring(0, 25) + '...' : name;
             const range = maxVal - minVal || 1;
             const pct = sortAsc 
                 ? Math.round(((maxVal - avg) / range) * 80 + 20) 
                 : Math.round((avg / maxVal) * 100);
+            const isActive = currentActiveAgents.includes(name.trim().toUpperCase());
             html += `
-                <div class="ranking-item" title="${name} — Média: USD ${fmt(avg)}">
+                <div class="ranking-item ${isActive ? 'active' : ''}" data-filter-field="agente" data-filter-value="${name}" title="${name} — Média: USD ${fmt(avg)}">
+                    <button class="ranking-chart-btn" data-entity="${name}" data-field="agente" title="Ver performance">📊</button>
                     <div class="ranking-item-row">
                         <span class="ranking-item-name">${displayName}</span>
-                        <span class="ranking-item-count" style="color:#059669;">$${fmt(avg)}</span>
+                        <span class="ranking-item-count" style="color:#059669; font-weight:700;">$${fmt(avg)}</span>
                     </div>
                     <div class="ranking-item-bar-wrapper">
                         <div class="ranking-item-bar" style="width: ${pct}%; background: linear-gradient(90deg, #10b981, #059669);"></div>
@@ -4180,6 +4117,37 @@ function renderFretesMedios(data) {
     }
     
     container.innerHTML = html;
+    
+    // Chart button click handlers
+    container.querySelectorAll('.ranking-chart-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showPerformanceTimeline(btn.dataset.entity, btn.dataset.field);
+        });
+    });
+    
+    // Multi-select click handlers to filter table by agent
+    container.querySelectorAll('.ranking-item').forEach(item => {
+        item.addEventListener('click', () => {
+            item.classList.toggle('active');
+            
+            const activeValues = [];
+            container.querySelectorAll('.ranking-item.active').forEach(ai => {
+                activeValues.push(ai.dataset.filterValue);
+            });
+            
+            const combined = activeValues.join(', ');
+            colFilters.agente = combined;
+            const agInput = document.getElementById('filter-agente-top');
+            if (agInput) agInput.value = combined;
+            const colAgInput = document.getElementById('col-filter-agente');
+            if (colAgInput) colAgInput.value = combined;
+            
+            currentPage = 1;
+            applyFilters();
+            updateDashboardCards();
+        });
+    });
     
     // Sort toggle
     const sortBtn = document.getElementById('btn-sort-agents');
