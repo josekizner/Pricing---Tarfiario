@@ -237,8 +237,8 @@ let activeDb = "apiAll";
 let filteredRates = [];
 let currentPage = 1;
 let rowsPerPage = 25;
-let currentSortField = "valor";
-let currentSortDirection = "asc";
+let currentSortField = "inicio";
+let currentSortDirection = "desc";
 const colFilters = { origem: "", destino: "", container: "", armador: "", agente: "", freetime: "", obs: "" };
 let analysisSortOrder = 'desc';
 let analysisGroupBy = 'rota'; // 'rota', 'agente', 'cliente'
@@ -810,11 +810,12 @@ window.exportSingleRouteData = function(gIdx) {
    ========================================================================== */
 
 // Sync timestamp helpers
-function setSyncStatus(key, type, timestamp) {
+function setSyncStatus(key, type, timestamp, latestRecordDate) {
     if (!timestamp) return;
     const item = {
         type: type,
-        timestamp: new Date(timestamp).toISOString()
+        timestamp: new Date(timestamp).toISOString(),
+        latestRecordDate: latestRecordDate || null
     };
     localStorage.setItem(`mond-sync-status-${key}`, JSON.stringify(item));
     renderSyncStatus(key);
@@ -839,15 +840,16 @@ function renderSyncStatus(key) {
         if (isNaN(d.getTime())) throw new Error("Invalid date");
         const pad = n => String(n).padStart(2, '0');
         const timeStr = `${pad(d.getDate())}/${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        const erpSuffix = status.latestRecordDate ? ` (ERP: ${status.latestRecordDate})` : '';
         
         if (status.type === 'live') {
             el.className = 'sync-timestamp sync-live';
-            el.innerHTML = `<span class="sync-dot"></span>API Live: ${timeStr}`;
-            el.title = `Dados sincronizados em tempo real direto da API em: ${d.toLocaleString('pt-BR')}`;
+            el.innerHTML = `<span class="sync-dot"></span>API Live: ${timeStr}${erpSuffix}`;
+            el.title = `Conexão ao vivo com a API Skychart às ${d.toLocaleTimeString('pt-BR')}. Último registro existente no Skychart: ${status.latestRecordDate || 'N/A'}.`;
         } else {
             el.className = 'sync-timestamp sync-cache';
-            el.innerHTML = `<span class="sync-dot"></span>Cache local: ${timeStr}`;
-            el.title = `Dados carregados do cache local gerado em: ${d.toLocaleString('pt-BR')}. Clique para atualizar em tempo real.`;
+            el.innerHTML = `<span class="sync-dot"></span>Cache: ${timeStr}${erpSuffix}`;
+            el.title = `Dados carregados do cache local gerado em: ${d.toLocaleString('pt-BR')}. Último registro no ERP: ${status.latestRecordDate || 'N/A'}.`;
         }
     } catch (e) {
         console.error(e);
@@ -1077,15 +1079,22 @@ async function fetchOperationalData(showOverlay = true) {
         renderIntelTab();
         renderAnalysisTab();
         
+        // Find latest operational date
+        let latestOpDateStr = '';
+        if (appOperational && appOperational.length > 0) {
+            const dates = appOperational.map(r => r.inicio).filter(Boolean).sort().reverse();
+            if (dates.length > 0) latestOpDateStr = dates[0].split('-').reverse().slice(0, 2).join('/');
+        }
+
         // Save sync status
         if (isLive) {
-            setSyncStatus('operational', 'live', new Date());
+            setSyncStatus('operational', 'live', new Date(), latestOpDateStr);
             if (showOverlay) {
                 hideToast();
-                showToast(`✅ Sincronização LIVE concluída! ${appOperational.length} processos atualizados direto da API Skychart.`, 'success', 5000);
+                showToast(`✅ Sincronização LIVE concluída! ${appOperational.length} processos atualizados direto da API Skychart.${latestOpDateStr ? ' (Último processo: ' + latestOpDateStr + ')' : ''}`, 'success', 6000);
             }
         } else if (lastMod) {
-            setSyncStatus('operational', 'cache', lastMod);
+            setSyncStatus('operational', 'cache', lastMod, latestOpDateStr);
             if (showOverlay) {
                 hideToast();
                 showToast(`ℹ️ Dados carregados do cache local (${appOperational.length} processos). Para sincronizar ao vivo, conecte a VPN Tailscale.`, 'info', 6000);
@@ -1093,7 +1102,7 @@ async function fetchOperationalData(showOverlay = true) {
         } else {
             const existing = localStorage.getItem('mond-sync-status-operational');
             if (!existing) {
-                setSyncStatus('operational', 'cache', new Date());
+                setSyncStatus('operational', 'cache', new Date(), latestOpDateStr);
             } else {
                 renderSyncStatus('operational');
             }
@@ -1305,15 +1314,22 @@ async function fetchCommercialData(showOverlay = true) {
         renderIntelTab();
         renderAnalysisTab();
         
+        // Find latest commercial date
+        let latestComDateStr = '';
+        if (appComercial && appComercial.length > 0) {
+            const dates = appComercial.map(r => r.inicio).filter(Boolean).sort().reverse();
+            if (dates.length > 0) latestComDateStr = dates[0].split('-').reverse().slice(0, 2).join('/');
+        }
+
         // Save sync status
         if (isLive) {
-            setSyncStatus('commercial', 'live', new Date());
+            setSyncStatus('commercial', 'live', new Date(), latestComDateStr);
             if (showOverlay) {
                 hideToast();
-                showToast(`✅ Sincronização LIVE concluída! ${appComercial.length} cotações atualizadas direto da API Skychart.`, 'success', 5000);
+                showToast(`✅ Sincronização LIVE concluída! ${appComercial.length} cotações atualizadas direto da API Skychart.${latestComDateStr ? ' (Última cotação: ' + latestComDateStr + ')' : ''}`, 'success', 6000);
             }
         } else if (lastMod) {
-            setSyncStatus('commercial', 'cache', lastMod);
+            setSyncStatus('commercial', 'cache', lastMod, latestComDateStr);
             if (showOverlay) {
                 hideToast();
                 showToast(`ℹ️ Dados carregados do cache local (${appComercial.length} cotações). Para sincronizar ao vivo, conecte a VPN Tailscale.`, 'info', 6000);
@@ -1321,7 +1337,7 @@ async function fetchCommercialData(showOverlay = true) {
         } else {
             const existing = localStorage.getItem('mond-sync-status-commercial');
             if (!existing) {
-                setSyncStatus('commercial', 'cache', new Date());
+                setSyncStatus('commercial', 'cache', new Date(), latestComDateStr);
             } else {
                 renderSyncStatus('commercial');
             }
@@ -1911,6 +1927,15 @@ function setupEventListeners() {
                 freightAnalyzer.style.display = isApiTab ? 'block' : 'none';
             }
             
+            // For API tabs (operational, commercial, apiAll), default to sorting by most recent date first
+            if (isApiTab) {
+                currentSortField = 'inicio';
+                currentSortDirection = 'desc';
+            } else {
+                currentSortField = 'valor';
+                currentSortDirection = 'asc';
+            }
+
             // Re-apply filters and update cards for the selected database
             hideRouteDetail();
             const perfInline = document.getElementById('performance-timeline-inline');
@@ -3635,8 +3660,8 @@ function renderTable() {
             let validityClass = "validity-text";
             let daysLabel = "";
 
-            if (rate.source === 'operational') {
-                // For operational: show how many days ago it was opened
+            if (rate.source === 'operational' || rate.source === 'commercial') {
+                // For operational & commercial: show how many days ago it was opened
                 if (diffDays < 0) {
                     daysLabel = `<span class="validity-days" style="color:var(--text-muted)">${Math.abs(diffDays)}d atrás</span>`;
                 } else if (diffDays === 0) {
@@ -3645,7 +3670,7 @@ function renderTable() {
                     daysLabel = `<span class="validity-days" style="color:var(--text-muted)">em ${diffDays}d</span>`;
                 }
             } else {
-                // For tarifa/space/commercial: expiration logic
+                // For tarifa/space: expiration logic on 'fim'
                 if (diffDays < 0) {
                     validityClass += " text-danger";
                     daysLabel = `<span class="badge badge-danger validity-days">Expirado</span>`;
