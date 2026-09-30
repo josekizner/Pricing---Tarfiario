@@ -898,34 +898,20 @@ async function fetchOperationalData(showOverlay = true) {
     if (showOverlay && btnSyncApi) {
         btnSyncApi.classList.add('loading');
         btnSyncApi.disabled = true;
-        if (syncBtnText) syncBtnText.textContent = 'Carregando...';
+        if (syncBtnText) syncBtnText.textContent = 'Sincronizando API...';
     }
     
     try {
         let rawDataList = null;
+        let isLive = false;
         let lastMod = null;
         
-        // 1. Sempre lê o cache estático otimizado primeiro (sub-segundo, ~1MB)
-        try {
-            const response = await fetch('./operational_cache.json', { method: 'GET' });
-            if (response.ok) {
-                lastMod = response.headers.get('Last-Modified') || new Date().toUTCString();
-                const json = await response.json();
-                const list = Array.isArray(json) ? json : (json.data || json.operational || []);
-                if (list && list.length > 0) {
-                    rawDataList = list;
-                    console.log('[Operational] Cache local carregado com sucesso:', rawDataList.length);
-                }
-            }
-        } catch (cacheErr) {
-            console.warn('[Operational] Falha ao ler cache local:', cacheErr.message);
-        }
-        
-        // 2. Se o cache não existia e o usuário solicitou sync explícito, tenta a API com timeout rápido de 5s
-        if (!rawDataList || rawDataList.length === 0) {
+        // 1. Se o usuário clicou explicitamente para sincronizar, busca direto na API Skychart ao vivo
+        if (showOverlay) {
+            showToast('⏳ Conectando à API Skychart e sincronizando dados operacionais ao vivo...', 'info', 15000);
             try {
                 const ctrl = new AbortController();
-                const tId = setTimeout(() => ctrl.abort(), 5000);
+                const tId = setTimeout(() => ctrl.abort(), 60000); // 60s timeout para base completa
                 const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/operacional', {
                     headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' },
                     signal: ctrl.signal
@@ -933,12 +919,36 @@ async function fetchOperationalData(showOverlay = true) {
                 clearTimeout(tId);
                 if (apiRes.ok) {
                     const apiJson = await apiRes.json();
-                    rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
-                    lastMod = new Date().toUTCString();
-                    console.log('[API Direct] Operacional sincronizado via API:', rawDataList.length);
+                    const list = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
+                    if (list && list.length > 0) {
+                        rawDataList = list;
+                        isLive = true;
+                        console.log('[API Direct] Operacional sincronizado via API Skychart ao vivo:', rawDataList.length);
+                    }
+                } else {
+                    console.warn('[API Direct] Status não-OK retornado pela API:', apiRes.status);
                 }
             } catch (netErr) {
-                console.warn('[API Direct] Falha na chamada direta:', netErr.message);
+                console.warn('[API Direct] Falha na chamada da API ao vivo:', netErr.message);
+                showToast(`⚠️ Não foi possível conectar à API ao vivo (${netErr.name === 'AbortError' ? 'tempo limite esgotado' : 'Tailscale offline?'}). Carregando cache local mais recente...`, 'warning', 6000);
+            }
+        }
+        
+        // 2. Se não foi chamada manual ou se a API falhou, lê o cache estático otimizado
+        if (!rawDataList || rawDataList.length === 0) {
+            try {
+                const response = await fetch('./operational_cache.json', { method: 'GET', cache: 'no-cache' });
+                if (response.ok) {
+                    lastMod = response.headers.get('Last-Modified') || new Date().toUTCString();
+                    const json = await response.json();
+                    const list = Array.isArray(json) ? json : (json.data || json.operational || []);
+                    if (list && list.length > 0) {
+                        rawDataList = list;
+                        console.log('[Operational] Cache estático carregado com sucesso:', rawDataList.length);
+                    }
+                }
+            } catch (cacheErr) {
+                console.warn('[Operational] Falha ao ler cache estático:', cacheErr.message);
             }
         }
         
@@ -1068,10 +1078,18 @@ async function fetchOperationalData(showOverlay = true) {
         renderAnalysisTab();
         
         // Save sync status
-        if (showOverlay) {
+        if (isLive) {
             setSyncStatus('operational', 'live', new Date());
+            if (showOverlay) {
+                hideToast();
+                showToast(`✅ Sincronização LIVE concluída! ${appOperational.length} processos atualizados direto da API Skychart.`, 'success', 5000);
+            }
         } else if (lastMod) {
             setSyncStatus('operational', 'cache', lastMod);
+            if (showOverlay) {
+                hideToast();
+                showToast(`ℹ️ Dados carregados do cache local (${appOperational.length} processos). Para sincronizar ao vivo, conecte a VPN Tailscale.`, 'info', 6000);
+            }
         } else {
             const existing = localStorage.getItem('mond-sync-status-operational');
             if (!existing) {
@@ -1079,11 +1097,10 @@ async function fetchOperationalData(showOverlay = true) {
             } else {
                 renderSyncStatus('operational');
             }
-        }
-        
-        if (showOverlay) {
-            hideToast();
-            showToast(`✅ Sincronização concluída! ${appOperational.length} processos carregados.`, 'success', 4000);
+            if (showOverlay) {
+                hideToast();
+                showToast(`✅ Dados operacionais carregados (${appOperational.length} processos).`, 'info', 4000);
+            }
         }
     } catch (err) {
         console.error("Erro ao sincronizar com a API:", err);
@@ -1132,34 +1149,20 @@ async function fetchCommercialData(showOverlay = true) {
     if (showOverlay && btnSyncComercial) {
         btnSyncComercial.classList.add('loading');
         btnSyncComercial.disabled = true;
-        if (syncBtnText) syncBtnText.textContent = 'Carregando...';
+        if (syncBtnText) syncBtnText.textContent = 'Sincronizando API...';
     }
     
     try {
         let rawDataList = null;
+        let isLive = false;
         let lastMod = null;
         
-        // 1. Sempre lê o cache estático otimizado primeiro (sub-segundo)
-        try {
-            const response = await fetch('./commercial_cache.json', { method: 'GET' });
-            if (response.ok) {
-                lastMod = response.headers.get('Last-Modified') || new Date().toUTCString();
-                const json = await response.json();
-                const list = Array.isArray(json) ? json : (json.data || json.commercial || []);
-                if (list && list.length > 0) {
-                    rawDataList = list;
-                    console.log('[Commercial] Cache local carregado com sucesso:', rawDataList.length);
-                }
-            }
-        } catch (cacheErr) {
-            console.warn('[Commercial] Falha ao ler cache local:', cacheErr.message);
-        }
-        
-        // 2. Se o cache não existia e o usuário solicitou sync explícito, tenta a API com timeout rápido de 5s
-        if (!rawDataList || rawDataList.length === 0) {
+        // 1. Se o usuário clicou explicitamente para sincronizar, busca direto na API Skychart ao vivo
+        if (showOverlay) {
+            showToast('⏳ Conectando à API Skychart e sincronizando cotações comerciais ao vivo...', 'info', 15000);
             try {
                 const ctrl = new AbortController();
-                const tId = setTimeout(() => ctrl.abort(), 5000);
+                const tId = setTimeout(() => ctrl.abort(), 60000); // 60s timeout para base completa
                 const apiRes = await fetch('https://server-mond.tail46f98e.ts.net/api/comercial', {
                     headers: { 'Authorization': 'Bearer b2e7c1f4-8a2d-4e3b-9c6a-7f1e2d5a9b3c' },
                     signal: ctrl.signal
@@ -1167,12 +1170,36 @@ async function fetchCommercialData(showOverlay = true) {
                 clearTimeout(tId);
                 if (apiRes.ok) {
                     const apiJson = await apiRes.json();
-                    rawDataList = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
-                    lastMod = new Date().toUTCString();
-                    console.log('[API Direct] Comercial sincronizado via API:', rawDataList.length);
+                    const list = Array.isArray(apiJson) ? apiJson : (apiJson.data || []);
+                    if (list && list.length > 0) {
+                        rawDataList = list;
+                        isLive = true;
+                        console.log('[API Direct] Comercial sincronizado via API Skychart ao vivo:', rawDataList.length);
+                    }
+                } else {
+                    console.warn('[API Direct] Status não-OK retornado pela API Comercial:', apiRes.status);
                 }
             } catch (netErr) {
-                console.warn('[API Direct] Falha na chamada direta comercial:', netErr.message);
+                console.warn('[API Direct] Falha na chamada da API Comercial ao vivo:', netErr.message);
+                showToast(`⚠️ Não foi possível conectar à API comercial ao vivo (${netErr.name === 'AbortError' ? 'tempo limite esgotado' : 'Tailscale offline?'}). Carregando cache local mais recente...`, 'warning', 6000);
+            }
+        }
+        
+        // 2. Se não foi chamada manual ou se a API falhou, lê o cache estático otimizado
+        if (!rawDataList || rawDataList.length === 0) {
+            try {
+                const response = await fetch('./commercial_cache.json', { method: 'GET', cache: 'no-cache' });
+                if (response.ok) {
+                    lastMod = response.headers.get('Last-Modified') || new Date().toUTCString();
+                    const json = await response.json();
+                    const list = Array.isArray(json) ? json : (json.data || json.commercial || []);
+                    if (list && list.length > 0) {
+                        rawDataList = list;
+                        console.log('[Commercial] Cache estático carregado com sucesso:', rawDataList.length);
+                    }
+                }
+            } catch (cacheErr) {
+                console.warn('[Commercial] Falha ao ler cache estático:', cacheErr.message);
             }
         }
         
@@ -1279,10 +1306,18 @@ async function fetchCommercialData(showOverlay = true) {
         renderAnalysisTab();
         
         // Save sync status
-        if (showOverlay) {
+        if (isLive) {
             setSyncStatus('commercial', 'live', new Date());
+            if (showOverlay) {
+                hideToast();
+                showToast(`✅ Sincronização LIVE concluída! ${appComercial.length} cotações atualizadas direto da API Skychart.`, 'success', 5000);
+            }
         } else if (lastMod) {
             setSyncStatus('commercial', 'cache', lastMod);
+            if (showOverlay) {
+                hideToast();
+                showToast(`ℹ️ Dados carregados do cache local (${appComercial.length} cotações). Para sincronizar ao vivo, conecte a VPN Tailscale.`, 'info', 6000);
+            }
         } else {
             const existing = localStorage.getItem('mond-sync-status-commercial');
             if (!existing) {
@@ -1290,11 +1325,10 @@ async function fetchCommercialData(showOverlay = true) {
             } else {
                 renderSyncStatus('commercial');
             }
-        }
-        
-        if (showOverlay) {
-            hideToast();
-            showToast(`✅ Sincronização concluída! ${appComercial.length} ofertas comerciais carregadas.`, 'success', 4000);
+            if (showOverlay) {
+                hideToast();
+                showToast(`✅ Dados comerciais carregados (${appComercial.length} cotações).`, 'info', 4000);
+            }
         }
     } catch (err) {
         console.error("Erro ao sincronizar com a API Comercial:", err);
