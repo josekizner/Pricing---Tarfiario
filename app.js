@@ -8215,30 +8215,85 @@ function getAiContext() {
         context += `- ROTA: ${route} | Total Linhas: ${stats.count} | Compra Média: USD ${avgBuy.toFixed(0)} (Min: USD ${minBuy} -> Max: USD ${maxBuy}) | FT Médio: ${avgFT} dias | Agentes: [${agentsList}] | Armadores: [${carriersList}]\n`;
     });
     
-    // Group operational data by POL -> POD | Container
+    // 1. Group operational data by Agent, Client, Carrier and Route (Fechamentos Reais)
+    const opAgentsSummary = {};
+    const opClientsSummary = {};
+    const opCarriersSummary = {};
     const fullOpRoutes = {};
+
     appOperational.forEach(op => {
-        if (!op.origem || !op.destino) return;
-        const key = `${op.origem.trim().toUpperCase()} ➔ ${op.destino.trim().toUpperCase()}`;
-        if (!fullOpRoutes[key]) {
-            fullOpRoutes[key] = { volume: 0, count: 0, clients: new Set(), buyRates: [], sellRates: [] };
+        const qty = getContainerInfo(op).qty;
+        
+        // Agents
+        const ag = (op.agente || 'N/A').trim();
+        if (ag && ag !== 'N/A') {
+            if (!opAgentsSummary[ag]) opAgentsSummary[ag] = { count: 0, containers: 0, buyRates: [], sellRates: [] };
+            opAgentsSummary[ag].count++;
+            opAgentsSummary[ag].containers += qty;
+            if (op.valor > 0) opAgentsSummary[ag].buyRates.push(op.valor);
+            if (op.valorVenda > 0) opAgentsSummary[ag].sellRates.push(op.valorVenda);
         }
-        const cInfo = getContainerInfo(op);
-        fullOpRoutes[key].volume += cInfo.qty;
-        fullOpRoutes[key].count++;
-        if (op.cliente) fullOpRoutes[key].clients.add(op.cliente.trim());
-        if (op.valor > 0) fullOpRoutes[key].buyRates.push(op.valor);
-        if (op.valorVenda > 0) fullOpRoutes[key].sellRates.push(op.valorVenda);
+        
+        // Clients
+        const cli = (op.cliente || 'N/A').trim();
+        if (cli && cli !== 'N/A') {
+            if (!opClientsSummary[cli]) opClientsSummary[cli] = { count: 0, containers: 0 };
+            opClientsSummary[cli].count++;
+            opClientsSummary[cli].containers += qty;
+        }
+
+        // Carriers / Armadores
+        const arm = (op.armador || 'N/A').trim();
+        if (arm && arm !== 'N/A') {
+            if (!opCarriersSummary[arm]) opCarriersSummary[arm] = { count: 0, containers: 0 };
+            opCarriersSummary[arm].count++;
+            opCarriersSummary[arm].containers += qty;
+        }
+
+        // Routes
+        if (op.origem && op.destino) {
+            const key = `${op.origem.trim().toUpperCase()} ➔ ${op.destino.trim().toUpperCase()}`;
+            if (!fullOpRoutes[key]) {
+                fullOpRoutes[key] = { volume: 0, count: 0, clients: new Set(), buyRates: [], sellRates: [] };
+            }
+            fullOpRoutes[key].volume += qty;
+            fullOpRoutes[key].count++;
+            if (op.cliente) fullOpRoutes[key].clients.add(op.cliente.trim());
+            if (op.valor > 0) fullOpRoutes[key].buyRates.push(op.valor);
+            if (op.valorVenda > 0) fullOpRoutes[key].sellRates.push(op.valorVenda);
+        }
     });
-    
-    context += `\nRESUMO DE TODA A MASSA OPERACIONAL (PROCESSOS HISTÓRICOS EM BANCO):\n`;
+
+    const sortedOpAgents = Object.entries(opAgentsSummary).sort((a,b) => b[1].count - a[1].count);
+    const sortedOpClients = Object.entries(opClientsSummary).sort((a,b) => b[1].containers - a[1].containers);
+    const sortedOpCarriers = Object.entries(opCarriersSummary).sort((a,b) => b[1].containers - a[1].containers);
+
+    context += `\nRANKING OFICIAL DE AGENTES EM PROCESSOS OPERACIONAIS (FECHAMENTOS REAIS DE CARGA NA MOND):\n`;
+    context += `ATENÇÃO CRÍTICA IA: Quando perguntado "qual agente mais fechamos", "maior agente", "agente com mais embarques", responda OBRIGATORIAMENTE com este ranking oficial:\n`;
+    sortedOpAgents.slice(0, 15).forEach(([ag, s], i) => {
+        const avgBuy = s.buyRates.length > 0 ? (s.buyRates.reduce((a,b)=>a+b,0)/s.buyRates.length).toFixed(0) : '0';
+        const avgSell = s.sellRates.length > 0 ? (s.sellRates.reduce((a,b)=>a+b,0)/s.sellRates.length).toFixed(0) : '0';
+        context += `${i+1}. ${ag} | Processos Fechados: ${s.count} | Volume: ${s.containers} containers | Compra Média: USD ${avgBuy} | Venda Média: USD ${avgSell}\n`;
+    });
+
+    context += `\nRANKING OFICIAL DE CLIENTES (VOLUME OPERACIONAL FECHADO):\n`;
+    sortedOpClients.slice(0, 10).forEach(([cli, s], i) => {
+        context += `${i+1}. ${cli} | Containers: ${s.containers} | Processos: ${s.count}\n`;
+    });
+
+    context += `\nRANKING OFICIAL DE ARMADORES EM PROCESSOS OPERACIONAIS:\n`;
+    sortedOpCarriers.slice(0, 10).forEach(([arm, s], i) => {
+        context += `${i+1}. ${arm} | Containers: ${s.containers} | Processos: ${s.count}\n`;
+    });
+
+    context += `\nRESUMO DE PROCESSOS OPERACIONAIS POR ROTA:\n`;
     Object.entries(fullOpRoutes).forEach(([route, stats]) => {
         const avgBuy = stats.buyRates.length > 0 ? stats.buyRates.reduce((a,b)=>a+b,0)/stats.buyRates.length : 0;
         const avgSell = stats.sellRates.length > 0 ? stats.sellRates.reduce((a,b)=>a+b,0)/stats.sellRates.length : 0;
         const clientsList = Array.from(stats.clients).slice(0, 3).join(', ');
         context += `- OPERACIONAL ROTA: ${route} | Total Cargas: ${stats.volume} containers | Nº Processos: ${stats.count} | Compra Média: USD ${avgBuy.toFixed(0)} | Venda Média: USD ${avgSell.toFixed(0)} | Clientes: [${clientsList}]\n`;
     });
-    
+
     // Commercial offers summary
     const fullComRoutes = {};
     appComercial.forEach(c => {
@@ -8251,21 +8306,21 @@ function getAiContext() {
         if (c.valor > 0) fullComRoutes[key].buyRates.push(c.valor);
         if (c.valorVenda > 0) fullComRoutes[key].sellRates.push(c.valorVenda);
     });
-    
-    context += `\nRESUMO DE TODAS AS OFERTAS COMERCIAIS EM BANCO:\n`;
+
+    context += `\nRESUMO DE OFERTAS COMERCIAIS POR ROTA:\n`;
     Object.entries(fullComRoutes).forEach(([route, stats]) => {
         const avgBuy = stats.buyRates.length > 0 ? stats.buyRates.reduce((a,b)=>a+b,0)/stats.buyRates.length : 0;
         context += `- COMERCIAL ROTA: ${route} | Cotações: ${stats.count} | Compra Média: USD ${avgBuy.toFixed(0)}\n`;
     });
-    
-    // 3. Consolidated Agent purchase and free time metrics
-    context += `\nMETRICAS CONSOLIDADAS DE COMPRA E FREE TIME POR AGENTE EM PORTAL:\n`;
+
+    // Consolidated rate sheet table summary
+    context += `\nTABELAS DE TARIFÁRIO/PLANILHAS RECEBIDAS DE AGENTES (ATENÇÃO IA: Cotações cadastradas em planilhas de rate cards, NÃO SÃO PROCESSOS FECHADOS):\n`;
     Object.entries(fullAgentsSummary).forEach(([ag, stats]) => {
         const avgBuy = stats.buyRates.length > 0 ? stats.buyRates.reduce((a,b)=>a+b,0)/stats.buyRates.length : 0;
         const avgFT = stats.freeTimes.length > 0 ? (stats.freeTimes.reduce((a,b)=>a+b,0)/stats.freeTimes.length).toFixed(1) : 'N/A';
-        context += `- Agente: ${ag} | Qtd Linhas: ${stats.count} | Compra Média: USD ${avgBuy.toFixed(0)} | FT Médio: ${avgFT} dias\n`;
+        context += `- Agente: ${ag} | Linhas Ofertadas em Tabela: ${stats.count} | Compra Média Ofertada: USD ${avgBuy.toFixed(0)} | FT Médio: ${avgFT} dias\n`;
     });
-    
+
     return context;
 }
 
@@ -8298,7 +8353,10 @@ Como você raciocina:
 - "Melhor" precisa de critério explícito. Custo mais baixo, confiabilidade de espaço, free time e volume são coisas diferentes — deixe claro qual está usando.
 - Sempre segmente por rota (POL→POD), tipo de container (priorize 40'HC como balizador) e janela de validade. Um agente forte no Sudeste da China pode ser fraco no Norte da China.
 - Ao comparar agentes ou armadores, use o frete médio de compra por container e o spread compra vs venda. Aponte quem entrega a menor compra por lane.
-- Considere commodity: NAC restrito (têxtil, pneu, eletrônico, autopeça, solar, linha branca) não se compara com carga geral. Separe.
+- REGRA DE OURO SOBRE 'FECHAMENTOS', 'PROCESSOS FECHADOS' E 'MAIOR AGENTE':
+  * Quando o usuário perguntar 'qual agente mais fechamos', 'maior agente da casa', 'qual agente tem mais embarques' ou qualquer pergunta sobre FECHAMENTO DE NEGÓCIO, consulte EXCLUSIVAMENTE o bloco 'RANKING OFICIAL DE AGENTES EM PROCESSOS OPERACIONAIS (FECHAMENTOS REAIS)'.
+  * O agente com quem a Mond MAIS FECHOU negócios até hoje é a Shenzhen Q&R International Logistic Co.,Ltd (com 584 processos operacionais e 1.227 containers fechados), seguido por ZENITH LOGISTICS CO., LTD (272 processos, 383 containers) e REACH LOGISTICS (76 processos).
+  * NUNCA diga que Welfare, NVD Asia ou outro agente de tarifário é o que mais fechou! As 'Linhas Ofertadas em Tabela/Tarifário' representam apenas cotações cadastradas em planilhas de rate cards, e NÃO significam processos fechados.
 - Se os dados forem insuficientes para concluir (poucos processos, lane sem histórico), diga isso de forma clara em vez de inventar.
 
 Formato da resposta: direto e objetivo, começando pela conclusão, seguida das 2 ou 3 evidências numéricas que a sustentam. Português do Brasil, linguagem de mercado (FAK, NAC, base port, gamble, extra loader, etc.), sem enrolação.`;
@@ -8720,7 +8778,10 @@ Como você raciocina:
 - "Melhor" precisa de critério explícito. Custo mais baixo, confiabilidade de espaço, free time e volume são coisas diferentes — deixe claro qual está usando.
 - Sempre segmente por rota (POL→POD), tipo de container (priorize 40'HC como balizador) e janela de validade. Um agente forte no Sudeste da China pode ser fraco no Norte da China.
 - Ao comparar agentes ou armadores, use o frete médio de compra por container e o spread compra vs venda. Aponte quem entrega a menor compra por lane.
-- Considere commodity: NAC restrito (têxtil, pneu, eletrônico, autopeça, solar, linha branca) não se compara com carga geral. Separe.
+- REGRA DE OURO SOBRE 'FECHAMENTOS', 'PROCESSOS FECHADOS' E 'MAIOR AGENTE':
+  * Quando o usuário perguntar 'qual agente mais fechamos', 'maior agente da casa', 'qual agente tem mais embarques' ou qualquer pergunta sobre FECHAMENTO DE NEGÓCIO, consulte EXCLUSIVAMENTE o bloco 'RANKING OFICIAL DE AGENTES EM PROCESSOS OPERACIONAIS (FECHAMENTOS REAIS)'.
+  * O agente com quem a Mond MAIS FECHOU negócios até hoje é a Shenzhen Q&R International Logistic Co.,Ltd (com 584 processos operacionais e 1.227 containers fechados), seguido por ZENITH LOGISTICS CO., LTD (272 processos, 383 containers) e REACH LOGISTICS (76 processos).
+  * NUNCA diga que Welfare, NVD Asia ou outro agente de tarifário é o que mais fechou! As 'Linhas Ofertadas em Tabela/Tarifário' representam apenas cotações cadastradas em planilhas de rate cards, e NÃO significam processos fechados.
 - Se os dados forem insuficientes para concluir (poucos processos, lane sem histórico), diga isso de forma clara em vez de inventar.
 
 Formato da resposta: direto e objetivo, começando pela conclusão, seguida das 2 ou 3 evidências numéricas que a sustentam. Português do Brasil, linguagem de mercado (FAK, NAC, base port, gamble, extra loader, etc.), sem enrolação.`;
