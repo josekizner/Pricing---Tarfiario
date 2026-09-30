@@ -1,6 +1,8 @@
 /* =====================================================================
-   MOND SHIPPING — AGENT DASHBOARD CONTROLLER v3 (dashboard_controller.js)
-   Dashboard Visual, Intuitivo e Executivo para Análise e Benchmarking de Agentes
+   MOND SHIPPING — AGENT DASHBOARD CONTROLLER v4 (dashboard_controller.js)
+   Dashboard Visual, Intuitivo e Executivo para Análise e Benchmarking de Agentes:
+   1. FECHAMENTO REAL (Operacional Skychart - Quem mais fecha negócios)
+   2. COMPETITIVIDADE DE TARIFAS (Planilhas Recebidas de Fretes)
    ===================================================================== */
 
 // ── BASE PORT CONSTANTS ────────────────────────────────────────────────────
@@ -34,14 +36,6 @@ function getRegion(destino) {
     return 'OUTRO';
 }
 
-function matchesOrigin(origem, mainOrigin) {
-    const o = (origem || '').toUpperCase().trim();
-    if (mainOrigin === 'SHENZHEN') {
-        return o.includes('SHENZHEN') || o.includes('SHEKOU') || o.includes('YANTIAN');
-    }
-    return o.includes(mainOrigin);
-}
-
 function normalizeContainerDash(c) {
     const clean = String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (clean.includes('20DRY') || clean.includes('20GP') || clean.includes('20FT')) return "20' DRY";
@@ -58,14 +52,31 @@ function normalizeRow(r) {
     return r;
 }
 
+// ── AGENT NAME VALIDATION & CLEANING ──────────────────────────────────────
+const EXCLUDED_AGENTS = new Set([
+    'A CONFIRMAR', 'CONFIRMAR', 'A DEFINIR', 'DEFINIR', 'N/A', 'N/D',
+    'SEM AGENTE', 'TESTE', 'DIVERSOS', 'VARIOS', 'VÁRIOS', 'PENDENTE',
+    'DESCONHECIDO', 'CHINA GLOBAL', 'OUTROS', 'OUTRO', 'INDEFINIDO',
+    'NULL', 'UNDEFINED', ''
+]);
+
+function isValidAgentName(name) {
+    if (!name) return false;
+    const clean = String(name).trim().toUpperCase();
+    if (clean.length < 2) return false;
+    if (EXCLUDED_AGENTS.has(clean)) return false;
+    if (clean.includes('CONFIRMAR') || clean.includes('DEFINIR') || clean.includes('PENDENTE')) return false;
+    return true;
+}
+
 // ── SNAPSHOTS & DATA REPOSITORY ──────────────────────────────────────────
 window.db = {
     snapshots: [],
     
     async loadAllSnapshots() {
         if (window.BUNDLED_SNAPSHOTS && Array.isArray(window.BUNDLED_SNAPSHOTS) && window.BUNDLED_SNAPSHOTS.length > 0) {
-            this.snapshots = window.BUNDLED_SNAPSHOTS;
-            console.log('[Dashboard] Carregados', this.snapshots.length, 'snapshots do bundle.');
+            this.snapshots = window.BUNDLED_SNAPSHOTS.filter(s => isValidAgentName(s.agent));
+            console.log('[Dashboard] Carregados', this.snapshots.length, 'snapshots válidos do bundle.');
             return this.snapshots;
         }
 
@@ -74,9 +85,11 @@ window.db = {
             const key = localStorage.key(i);
             const match = key.match(/^snapshot:([^:]+):(\d{4}-\d{2}-\d{2})$/);
             if (match) {
+                const ag = match[1];
+                if (!isValidAgentName(ag)) continue;
                 try {
                     const content = JSON.parse(localStorage.getItem(key)) || [];
-                    list.push({ key, agent: match[1], date: match[2], data: content });
+                    list.push({ key, agent: ag, date: match[2], data: content });
                 } catch (err) {}
             }
         }
@@ -93,15 +106,13 @@ window.db = {
     }
 };
 
-const EXCLUDED_AGENTS = new Set(['CHINA GLOBAL', 'N/A', '', 'DESCONHECIDO']);
-
 function getLiveDataByAgent() {
     const rates = window.appRates || [];
     const tariffRates = rates.filter(r => !r.source || r.source === 'rate');
     const byAgent = {};
     tariffRates.forEach(r => {
         const agentName = (r.agente || '').toUpperCase().trim();
-        if (!agentName || EXCLUDED_AGENTS.has(agentName)) return;
+        if (!isValidAgentName(agentName)) return;
         if (!byAgent[agentName]) byAgent[agentName] = [];
         byAgent[agentName].push({
             agente: agentName,
@@ -127,6 +138,7 @@ function getGroupedAgentSnapshots() {
 
     // 1. Live data from active session
     for (const [agent, rows] of Object.entries(liveByAgent)) {
+        if (!isValidAgentName(agent)) continue;
         if (!grouped[agent]) grouped[agent] = [];
         grouped[agent].push({ key: `snapshot:${agent}:${todayStr}`, agent, date: todayStr, _liveData: rows });
     }
@@ -134,16 +146,16 @@ function getGroupedAgentSnapshots() {
     // 2. Historical/Bundled snapshots
     historicalSnaps.forEach(s => {
         const ag = (s.agent || '').toUpperCase().trim();
-        if (EXCLUDED_AGENTS.has(ag)) return;
+        if (!isValidAgentName(ag)) return;
         if (!grouped[ag]) grouped[ag] = [];
         grouped[ag].push(s);
     });
 
-    // 3. Fallback: Extract from active commercial offers if grouped is still empty
+    // 3. Fallback: Commercial offers if grouped is still empty
     if (Object.keys(grouped).length === 0 && window.appComercial && window.appComercial.length > 0) {
         window.appComercial.forEach(c => {
             const ag = (c.agente || '').toUpperCase().trim();
-            if (!ag || EXCLUDED_AGENTS.has(ag) || c.valor <= 0) return;
+            if (!isValidAgentName(ag) || c.valor <= 0) return;
             if (!grouped[ag]) grouped[ag] = [{ key: `com:${ag}`, agent: ag, date: todayStr, _liveData: [] }];
             grouped[ag][0]._liveData.push({
                 agente: ag,
@@ -194,11 +206,11 @@ function filterRowsByObs(rows, obsFilter) {
 }
 
 // ── VIEW SWITCHING ────────────────────────────────────────────────────────
-window.currentAgentView = 'cards';
+window.currentAgentView = 'operational';
 
 window.switchAgentView = function(viewName) {
     window.currentAgentView = viewName;
-    ['cards', 'matchups', 'ranking'].forEach(v => {
+    ['operational', 'cards', 'matchups', 'ranking'].forEach(v => {
         const el = document.getElementById(`agent-view-${v}`);
         const btn = document.getElementById(`btn-agent-view-${v}`);
         if (el) el.style.display = (v === viewName) ? 'block' : 'none';
@@ -216,16 +228,21 @@ window.switchAgentView = function(viewName) {
             }
         }
     });
+
+    // Control podium visibility: tariff podium only appears on 'cards'
+    const tariffPodium = document.getElementById('agent-podium-section');
+    if (tariffPodium) {
+        tariffPodium.style.display = (viewName === 'cards') ? 'block' : 'none';
+    }
+
     if (typeof lucide !== 'undefined') lucide.createIcons();
 };
 
-// ── FILTER TRIGGER HELPER ─────────────────────────────────────────────────
+// ── FILTER TRIGGER HELPERS ────────────────────────────────────────────────
 window.filterByAgentInMainPortal = function(agentName) {
-    // Switch to search tab
     const searchTabBtn = document.getElementById('search-tab-link');
     if (searchTabBtn) searchTabBtn.click();
     
-    // Set agent input and trigger search
     const agentInput = document.getElementById('filter-agente-top');
     if (agentInput) {
         agentInput.value = agentName;
@@ -237,94 +254,117 @@ window.filterByAgentInMainPortal = function(agentName) {
     }
 };
 
-// ── MAIN RENDER FUNCTION ──────────────────────────────────────────────────
-function renderDashboardTab() {
-    // Make sure snapshots are loaded
-    if (window.db && window.db.snapshots.length === 0 && window.BUNDLED_SNAPSHOTS) {
-        window.db.snapshots = window.BUNDLED_SNAPSHOTS;
+window.filterOperationalByAgent = function(agentName) {
+    const searchTabBtn = document.getElementById('search-tab-link');
+    if (searchTabBtn) searchTabBtn.click();
+    
+    // Switch DB selector to 'operational'
+    const opBtn = document.querySelector('.db-btn[data-db="operational"]');
+    if (opBtn) opBtn.click();
+    
+    const agentInput = document.getElementById('filter-agente-top');
+    if (agentInput) {
+        agentInput.value = agentName;
+        agentInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
-
-    const grouped = getGroupedAgentSnapshots();
-    const porAgente = {};
-    const agentsList = [];
-
-    for (const agent in grouped) {
-        if (grouped[agent].length > 0) {
-            const rows = getSnapshotDataSmart(grouped[agent][0]);
-            if (rows.length > 0) {
-                agentsList.push(agent);
-                porAgente[agent] = rows;
-            }
-        }
+    if (typeof applyFilters === 'function') applyFilters();
+    if (typeof showToast === 'function') {
+        showToast(`🚢 Filtrando processos operacionais pelo agente: ${agentName}`, 'info', 3000);
     }
-    agentsList.sort();
+};
 
-    // Populate Container Filter
-    populateContainerFilter(porAgente);
-
-    // Read user filters
-    const searchVal = (document.getElementById('agent-dash-search')?.value || '').trim().toUpperCase();
-    const containerFilterVal = (document.getElementById('agent-dash-container-filter')?.value || '').toUpperCase();
-    const obsFilter = document.getElementById('agent-dash-obs-filter')?.value || 'all';
-
-    // Filter each agent's rows
-    const filteredPorAgente = {};
-    for (const [ag, rows] of Object.entries(porAgente)) {
-        // If agent name matches search, keep all or filter routes
-        let f = rows;
-        if (containerFilterVal) f = f.filter(r => (r.container || '').toUpperCase() === containerFilterVal);
-        f = filterRowsByObs(f, obsFilter);
-        
-        if (searchVal) {
-            const matchesAgent = ag.includes(searchVal);
-            if (!matchesAgent) {
-                f = f.filter(r => (r.origem || '').toUpperCase().includes(searchVal) || (r.destino || '').toUpperCase().includes(searchVal));
-            }
-        }
-
-        if (f.length > 0) filteredPorAgente[ag] = f;
+// ── OPERATIONAL DATA REPOSITORY & STATS ────────────────────────────────────
+function getOperationalDataForDashboard() {
+    let op = window.appOperational || [];
+    if (!op || op.length === 0) {
+        try {
+            const raw = localStorage.getItem('mond-operational');
+            if (raw) op = JSON.parse(raw);
+        } catch(e) {}
     }
-
-    // Compute route matchups & winners
-    const routeMatchups = computeRouteMatchups(filteredPorAgente);
-
-    // Compute agent scorecards & statistics
-    const agentStats = computeAgentStats(filteredPorAgente, routeMatchups);
-
-    // Render 1. Podium
-    renderAgentPodium(agentStats, routeMatchups);
-
-    // Render 2. Agent Cards View
-    renderAgentCardsGrid(agentStats);
-
-    // Render 3. Route Matchup View
-    renderRouteMatchupsView(routeMatchups);
-
-    // Render 4. Leaderboard Table
-    renderAgentLeaderboardTable(agentStats);
-
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    return Array.isArray(op) ? op : [];
 }
 
-function populateContainerFilter(porAgente) {
-    const sel = document.getElementById('agent-dash-container-filter');
-    if (!sel || sel.children.length > 2) return;
-    const currentVal = sel.value;
-    const containers = new Set();
-    for (const rows of Object.values(porAgente)) {
-        rows.forEach(r => { if (r.container) containers.add(r.container.toUpperCase()); });
+function computeOperationalAgentStats(opList, searchVal) {
+    const agentsMap = {};
+    opList.forEach(item => {
+        const status = (item.DS_STATUS || item.status || '').toLowerCase();
+        if (status.includes('cancel')) return;
+
+        const ag = (item.agente || item.AGENTE || '').trim().toUpperCase();
+        if (!isValidAgentName(ag)) return;
+
+        if (!agentsMap[ag]) {
+            agentsMap[ag] = {
+                agent: ag,
+                count: 0,
+                containers: 0,
+                buyRates: [],
+                sellRates: [],
+                carriers: {},
+                routes: {},
+                clients: new Set(),
+                recentProcesses: []
+            };
+        }
+        const st = agentsMap[ag];
+        st.count++;
+
+        let qty = 1;
+        if (item.qtdeContainer != null && Number(item.qtdeContainer) > 0) {
+            qty = Number(item.qtdeContainer);
+        } else if (item.DS_QUANTIDADE_CONTAINERS) {
+            const match = String(item.DS_QUANTIDADE_CONTAINERS).match(/(\d+)/);
+            if (match) qty = parseInt(match[1], 10) || 1;
+        } else if (item.QT_CONTAINER) {
+            qty = parseInt(item.QT_CONTAINER, 10) || 1;
+        }
+        st.containers += qty;
+
+        const buy = Number(item.valor != null ? item.valor : (item.VL_COMPRA_FRETE || item.VL_FRETE_COMPRA)) || 0;
+        const sell = Number(item.valorVenda != null ? item.valorVenda : (item.VL_VENDA_FRETE || item.VL_FRETE_VENDA)) || 0;
+        if (buy > 0) st.buyRates.push(buy);
+        if (sell > 0) st.sellRates.push(sell);
+
+        const arm = (item.armador || item.ARMADOR || item.DS_ARMADOR || '').trim().toUpperCase();
+        if (arm && arm !== 'N/A') st.carriers[arm] = (st.carriers[arm] || 0) + 1;
+
+        const orig = (item.origem || item.ORIGEM || item.DS_ORIGEM || '').trim().toUpperCase();
+        const dest = (item.destino || item.DESTINO || item.DS_DESTINO || '').trim().toUpperCase();
+        if (orig && dest && orig !== 'N/A' && dest !== 'N/A') {
+            const rk = `${orig} → ${dest}`;
+            st.routes[rk] = (st.routes[rk] || 0) + 1;
+        }
+
+        const cli = (item.cliente || item.CLIENTE || item.DS_CLIENTE || '').trim().toUpperCase();
+        if (cli && cli !== 'N/A') st.clients.add(cli);
+
+        const proc = item.processo || item.PROCESSO;
+        if (proc && st.recentProcesses.length < 3) {
+            st.recentProcesses.push(proc);
+        }
+    });
+
+    let list = Object.values(agentsMap);
+    if (searchVal) {
+        list = list.filter(st => {
+            if (st.agent.includes(searchVal)) return true;
+            for (const r in st.routes) {
+                if (r.includes(searchVal)) return true;
+            }
+            return false;
+        });
     }
-    let html = '<option value="">Todos Contêineres</option>';
-    Array.from(containers).sort().forEach(c => { html += `<option value="${c}">${c}</option>`; });
-    sel.innerHTML = html;
-    if (currentVal) sel.value = currentVal;
+
+    list.sort((a, b) => b.count - a.count);
+    return list;
 }
 
-// ── MATCHUP & STATISTICS CALCULATORS ──────────────────────────────────────
+// ── TARIFF MATCHUP & STATISTICS CALCULATORS ────────────────────────────────
 function computeRouteMatchups(porAgente) {
-    // Group quotes by Route: "ORIGEM → DESTINO (CONTAINER)"
     const routes = {};
     for (const [agent, rows] of Object.entries(porAgente)) {
+        if (!isValidAgentName(agent)) continue;
         rows.forEach(r => {
             const frete = Number(r.frete);
             if (!frete || isNaN(frete) || frete < 200 || frete > 25000) return;
@@ -352,7 +392,6 @@ function computeRouteMatchups(porAgente) {
         });
     }
 
-    // Sort quotes for each route and pick winners
     const result = {};
     for (const [key, info] of Object.entries(routes)) {
         if (info.quotes.length === 0) continue;
@@ -364,7 +403,7 @@ function computeRouteMatchups(porAgente) {
 
         result[key] = {
             ...info,
-            winner: best.agente,
+            bestAgent: best.agente,
             bestPrice: best.frete,
             worstPrice: worst.frete,
             secondPrice: secondBest.frete,
@@ -378,9 +417,9 @@ function computeRouteMatchups(porAgente) {
 
 function computeAgentStats(porAgente, routeMatchups) {
     const stats = {};
-    const totalMatchups = Object.keys(routeMatchups).length;
 
     for (const [agent, rows] of Object.entries(porAgente)) {
+        if (!isValidAgentName(agent)) continue;
         const validRates = rows.filter(r => r.frete != null && !isNaN(r.frete) && r.frete >= 200 && r.frete <= 25000);
         if (validRates.length === 0) continue;
 
@@ -390,24 +429,30 @@ function computeAgentStats(porAgente, routeMatchups) {
         const freeTimes = validRates.map(r => Number(r.freeTime) || 0).filter(ft => ft > 0);
         const avgFt = freeTimes.length > 0 ? Math.round(freeTimes.reduce((a, b) => a + b, 0) / freeTimes.length) : 14;
 
-        // Carrier partners
         const carriers = new Set();
         validRates.forEach(r => { if (r.armador && r.armador !== 'N/A') carriers.add(r.armador); });
 
-        // Count route wins
-        let wins = 0;
-        const wonRoutes = [];
+        // Calculate accurate matchup counts and rates
+        let matchupsParticipated = 0;
+        let lowestCount = 0;
+        const bestRoutes = [];
+
         for (const [routeKey, m] of Object.entries(routeMatchups)) {
-            if (m.winner === agent) {
-                wins++;
-                wonRoutes.push({ route: routeKey, price: m.bestPrice, spread: m.spread });
+            const hasQuote = m.quotes.some(q => q.agente === agent);
+            if (hasQuote) {
+                matchupsParticipated++;
+                if (m.bestAgent === agent) {
+                    lowestCount++;
+                    bestRoutes.push({ route: routeKey, price: m.bestPrice, spread: m.spread });
+                }
             }
         }
-        wonRoutes.sort((a, b) => b.spread - a.spread);
+        bestRoutes.sort((a, b) => b.spread - a.spread);
 
-        // Win rate across quoted routes
-        const quotedRoutesCount = new Set(validRates.map(r => `${(r.origem||'').toUpperCase()}→${(r.destino||'').toUpperCase()}`)).size;
-        const winRate = quotedRoutesCount > 0 ? Math.round((wins / quotedRoutesCount) * 100) : 0;
+        // Competitiveness rate guaranteed 0% to 100%
+        const competitivenessRate = matchupsParticipated > 0
+            ? Math.min(100, Math.max(0, Math.round((lowestCount / matchupsParticipated) * 100)))
+            : 0;
 
         stats[agent] = {
             agent,
@@ -416,10 +461,10 @@ function computeAgentStats(porAgente, routeMatchups) {
             avgFt,
             carriers: Array.from(carriers),
             totalQuotes: validRates.length,
-            quotedRoutesCount,
-            wins,
-            winRate,
-            wonRoutes,
+            matchupsParticipated,
+            lowestCount,
+            competitivenessRate,
+            bestRoutes,
             sampleRows: validRates
         };
     }
@@ -427,30 +472,230 @@ function computeAgentStats(porAgente, routeMatchups) {
     return stats;
 }
 
-// ── RENDER SEÇÃO 1: PODIUM & DESTAQUES ─────────────────────────────────────
+// ── RENDER VIEW 0: OPERACIONAL (FECHAMENTOS REAIS) ────────────────────────
+function renderOperationalView(opStats) {
+    const podiumEl = document.getElementById('agent-operational-podium-section');
+    const gridEl = document.getElementById('agent-operational-cards-grid');
+
+    if (!podiumEl || !gridEl) return;
+
+    if (!opStats || opStats.length === 0) {
+        podiumEl.innerHTML = `
+            <div class="card" style="padding:30px; text-align:center; color:var(--text-muted); border-radius:12px;">
+                Nenhum processo operacional localizado no banco de dados. Sincronize a API Skychart para carregar os fechamentos.
+            </div>`;
+        gridEl.innerHTML = '';
+        return;
+    }
+
+    const first = opStats[0];
+    const second = opStats[1] || null;
+    const third = opStats[2] || null;
+
+    const calcAvg = (arr) => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+
+    const firstBuy = calcAvg(first.buyRates);
+    const firstSell = calcAvg(first.sellRates);
+    const firstSpread = firstSell > firstBuy ? firstSell - firstBuy : 0;
+
+    const secondBuy = second ? calcAvg(second.buyRates) : 0;
+    const secondSell = second ? calcAvg(second.sellRates) : 0;
+
+    const thirdBuy = third ? calcAvg(third.buyRates) : 0;
+
+    podiumEl.innerHTML = `
+        <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:12px; padding:12px 18px; margin-bottom:18px; font-size:0.83rem; color:var(--text-secondary); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <i data-lucide="check-circle-2" style="width:18px; height:18px; color:#10b981; flex-shrink:0;"></i>
+                <span><strong>Fechamentos Reais (Skychart ERP):</strong> Ranking oficial de agentes com cargas efetivamente contratadas e embarcadas pela Mond Shipping.</span>
+            </div>
+            <span style="font-weight:700; color:var(--text-primary);">${opStats.length} agentes parceiros ativos</span>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+            <!-- 🥇 1º Lugar Fechamentos -->
+            <div class="card" style="background:linear-gradient(135deg, rgba(234,179,8,0.08), rgba(245,158,11,0.03)); border:2px solid #eab308; border-radius:14px; padding:18px; position:relative; overflow:hidden; box-shadow:0 4px 16px rgba(234,179,8,0.12);">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#b45309; background:rgba(234,179,8,0.2); padding:3px 8px; border-radius:6px;">
+                            🥇 Maior Volume de Fechamentos
+                        </span>
+                        <h3 style="font-size:1.15rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${first.agent}</h3>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;"><strong>${first.count} processos operacionais</strong> | ${first.containers} contêineres</p>
+                    </div>
+                    <div style="font-size:2.2rem; line-height:1;">👑</div>
+                </div>
+                <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média Real</span>
+                        <div style="font-size:1.3rem; font-weight:900; color:#16a34a;">USD ${firstBuy.toLocaleString('pt-BR')}</div>
+                    </div>
+                    ${firstSpread > 0 ? `
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Margem Média</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:#0284c7;">+USD ${firstSpread.toLocaleString('pt-BR')}</div>
+                    </div>` : ''}
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(234,179,8,0.3); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${first.clients.size} clientes atendidos</span>
+                    <button class="btn btn-sm btn-primary" onclick="window.filterOperationalByAgent('${first.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Ver Processos</button>
+                </div>
+            </div>
+
+            <!-- 🥈 2º Lugar Fechamentos -->
+            ${second ? `
+            <div class="card" style="background:linear-gradient(135deg, rgba(148,163,184,0.08), rgba(203,213,225,0.03)); border:1.5px solid #94a3b8; border-radius:14px; padding:18px; position:relative;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#475569; background:rgba(148,163,184,0.2); padding:3px 8px; border-radius:6px;">
+                            🥈 2º Lugar em Fechamentos
+                        </span>
+                        <h3 style="font-size:1.1rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${second.agent}</h3>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;"><strong>${second.count} processos operacionais</strong> | ${second.containers} contêineres</p>
+                    </div>
+                    <div style="font-size:2rem; line-height:1;">🥈</div>
+                </div>
+                <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média Real</span>
+                        <div style="font-size:1.3rem; font-weight:900; color:#16a34a;">USD ${secondBuy.toLocaleString('pt-BR')}</div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Clientes Atendidos</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--text-primary);">${second.clients.size}</div>
+                    </div>
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(148,163,184,0.3); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${Object.keys(second.routes).length} rotas operadas</span>
+                    <button class="btn btn-sm btn-secondary" onclick="window.filterOperationalByAgent('${second.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Ver Processos</button>
+                </div>
+            </div>` : ''}
+
+            <!-- 🥉 3º Lugar Fechamentos -->
+            ${third ? `
+            <div class="card" style="background:linear-gradient(135deg, rgba(180,83,9,0.06), rgba(217,119,6,0.02)); border:1.5px solid #d97706; border-radius:14px; padding:18px; position:relative;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#b45309; background:rgba(217,119,6,0.2); padding:3px 8px; border-radius:6px;">
+                            🥉 3º Lugar em Fechamentos
+                        </span>
+                        <h3 style="font-size:1.1rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${third.agent}</h3>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;"><strong>${third.count} processos operacionais</strong> | ${third.containers} contêineres</p>
+                    </div>
+                    <div style="font-size:2rem; line-height:1;">🥉</div>
+                </div>
+                <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média Real</span>
+                        <div style="font-size:1.3rem; font-weight:900; color:#16a34a;">USD ${thirdBuy.toLocaleString('pt-BR')}</div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Rotas Atendidas</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--text-primary);">${Object.keys(third.routes).length}</div>
+                    </div>
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(217,119,6,0.3); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${third.clients.size} clientes atendidos</span>
+                    <button class="btn btn-sm btn-outline" onclick="window.filterOperationalByAgent('${third.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Ver Processos</button>
+                </div>
+            </div>` : ''}
+        </div>
+    `;
+
+    // Render Grid of all operational agents
+    gridEl.innerHTML = opStats.map((st, idx) => {
+        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+        const avgBuy = calcAvg(st.buyRates);
+        const avgSell = calcAvg(st.sellRates);
+        const spread = avgSell > avgBuy ? avgSell - avgBuy : 0;
+
+        const topRoutes = Object.entries(st.routes).sort((a,b)=>b[1]-a[1]).slice(0, 2).map(([r, c]) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; padding:3px 0; border-bottom:1px solid rgba(0,0,0,0.03);">
+                <span style="color:var(--text-secondary); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px;">${r}</span>
+                <span style="font-weight:700; color:var(--text-primary);">${c} cargas</span>
+            </div>
+        `).join('') || '<div style="font-size:0.72rem; color:var(--text-muted); font-style:italic;">Sem rotas registradas</div>';
+
+        const topCarriers = Object.entries(st.carriers).sort((a,b)=>b[1]-a[1]).slice(0, 3).map(([c]) => 
+            `<span style="background:var(--bg-secondary); border:1px solid var(--card-border); padding:2px 6px; border-radius:4px; font-size:0.68rem; font-weight:600; color:var(--text-secondary);">${c}</span>`
+        ).join(' ');
+
+        return `
+            <div class="card agent-pro-card" style="padding:18px; border-radius:14px; border:1px solid var(--card-border); background:var(--card-bg); display:flex; flex-direction:column; justify-content:space-between; transition:transform 0.2s, box-shadow 0.2s;">
+                <div>
+                    <!-- Header -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:28px; height:28px; border-radius:50%; background:var(--bg-secondary); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.85rem; color:var(--text-primary);">${medal}</span>
+                            <h4 style="margin:0; font-size:1.02rem; font-weight:800; color:var(--text-primary); letter-spacing:-0.2px; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${st.agent}</h4>
+                        </div>
+                        <span style="background:rgba(16,185,129,0.15); color:#065f46; font-weight:800; font-size:0.74rem; padding:3px 9px; border-radius:20px;">
+                            ${st.count} processos
+                        </span>
+                    </div>
+
+                    <!-- Volume Metrics -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:var(--bg-secondary); padding:10px 12px; border-radius:10px; margin-bottom:12px;">
+                        <div>
+                            <span style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; display:block;">Volume Real</span>
+                            <span style="font-size:1.15rem; font-weight:900; color:var(--text-primary);">${st.containers} TEUs</span>
+                        </div>
+                        <div>
+                            <span style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; display:block;">Compra Média Real</span>
+                            <span style="font-size:1.15rem; font-weight:900; color:#16a34a;">USD ${avgBuy.toLocaleString('pt-BR')}</span>
+                        </div>
+                    </div>
+
+                    ${spread > 0 ? `
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.72rem; margin-bottom:12px; padding:4px 8px; background:rgba(2,132,199,0.06); border-radius:6px; color:#0284c7; font-weight:700;">
+                        <span>Venda Média: USD ${avgSell.toLocaleString('pt-BR')}</span>
+                        <span>Margem: +USD ${spread.toLocaleString('pt-BR')}</span>
+                    </div>` : ''}
+
+                    <!-- Top Routes -->
+                    <div style="margin-bottom:14px;">
+                        <span style="font-size:0.68rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px; display:block; margin-bottom:4px;">Rotas mais contratadas:</span>
+                        ${topRoutes}
+                    </div>
+                </div>
+
+                <!-- Footer with Carriers and Action Button -->
+                <div>
+                    ${topCarriers ? `
+                    <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; align-items:center;">
+                        <span style="font-size:0.68rem; color:var(--text-muted); font-weight:600; margin-right:2px;">Armadores:</span>
+                        ${topCarriers}
+                    </div>` : ''}
+                    <button class="btn btn-outline" onclick="window.filterOperationalByAgent('${st.agent}')" style="width:100%; height:34px; font-size:0.78rem; font-weight:600; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;">
+                        <i data-lucide="ship" style="width:13px; height:13px;"></i> Ver Processos deste Agente
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ── RENDER SEÇÃO: PODIUM DE TARIFAS (BENCHMARKING) ────────────────────────
 function renderAgentPodium(stats, routeMatchups) {
     const podiumEl = document.getElementById('agent-podium-section');
     if (!podiumEl) return;
 
     const sortedAgents = Object.values(stats).sort((a, b) => {
-        // Sort by win rate and average freight
-        if (b.wins !== a.wins) return b.wins - a.wins;
+        if (b.lowestCount !== a.lowestCount) return b.lowestCount - a.lowestCount;
         return a.avgFreight - b.avgFreight;
     });
 
     if (sortedAgents.length === 0) {
         podiumEl.innerHTML = `
             <div class="card" style="padding:30px; text-align:center; color:var(--text-muted); border-radius:12px;">
-                Nenhum agente encontrado com os filtros selecionados.
+                Nenhum agente localizado com os filtros selecionados.
             </div>`;
         return;
     }
 
     const first = sortedAgents[0];
     const second = sortedAgents[1] || null;
-    const third = sortedAgents[2] || null;
 
-    // Largest spread in entire system
     let maxSpreadRoute = null;
     let maxSpreadVal = 0;
     for (const m of Object.values(routeMatchups)) {
@@ -462,21 +707,21 @@ function renderAgentPodium(stats, routeMatchups) {
 
     podiumEl.innerHTML = `
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
-            <!-- 🥇 O Campeão Geral -->
+            <!-- 🏷️ Menor Custo Médio Ofertado -->
             <div class="card" style="background:linear-gradient(135deg, rgba(234,179,8,0.08), rgba(245,158,11,0.03)); border:2px solid #eab308; border-radius:14px; padding:18px; position:relative; overflow:hidden; box-shadow:0 4px 16px rgba(234,179,8,0.12);">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <div>
                         <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#b45309; background:rgba(234,179,8,0.2); padding:3px 8px; border-radius:6px;">
-                            🥇 Campeão em Custo & Domínio
+                            🏷️ Menor Frete Médio Ofertado
                         </span>
                         <h3 style="font-size:1.25rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${first.agent}</h3>
-                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">${first.wins} rotas com o menor frete (${first.winRate}% de vitórias)</p>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">Menor frete cotado em <strong>${first.lowestCount} rotas</strong> (${first.competitivenessRate}% das ofertadas)</p>
                     </div>
-                    <div style="font-size:2.2rem; line-height:1;">👑</div>
+                    <div style="font-size:2.2rem; line-height:1;">📊</div>
                 </div>
                 <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
                     <div>
-                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média</span>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média Ofertada</span>
                         <div style="font-size:1.35rem; font-weight:900; color:#16a34a;">USD ${first.avgFreight.toLocaleString('pt-BR')}</div>
                     </div>
                     <div>
@@ -486,26 +731,26 @@ function renderAgentPodium(stats, routeMatchups) {
                 </div>
                 <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(234,179,8,0.3); display:flex; justify-content:space-between; align-items:center;">
                     <span style="font-size:0.75rem; color:var(--text-secondary);">Melhor frete a partir de <strong>USD ${first.minFreight.toLocaleString('pt-BR')}</strong></span>
-                    <button class="btn btn-sm btn-primary" onclick="window.filterByAgentInMainPortal('${first.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Filtrar</button>
+                    <button class="btn btn-sm btn-primary" onclick="window.filterByAgentInMainPortal('${first.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Filtrar no Portal</button>
                 </div>
             </div>
 
-            <!-- 🥈 Vice-Campeão -->
+            <!-- 🥈 2ª Maior Competitividade -->
             ${second ? `
             <div class="card" style="background:linear-gradient(135deg, rgba(148,163,184,0.08), rgba(203,213,225,0.03)); border:1.5px solid #94a3b8; border-radius:14px; padding:18px; position:relative;">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <div>
                         <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#475569; background:rgba(148,163,184,0.2); padding:3px 8px; border-radius:6px;">
-                            🥈 2º Lugar Geral
+                            🥈 2ª Maior Competitividade
                         </span>
                         <h3 style="font-size:1.15rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">${second.agent}</h3>
-                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">${second.wins} rotas vencidas (${second.winRate}% vitórias)</p>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">Menor frete em <strong>${second.lowestCount} rotas</strong> (${second.competitivenessRate}% das ofertadas)</p>
                     </div>
                     <div style="font-size:2rem; line-height:1;">🥈</div>
                 </div>
                 <div style="margin-top:14px; display:flex; gap:16px; align-items:baseline;">
                     <div>
-                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média</span>
+                        <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Compra Média Ofertada</span>
                         <div style="font-size:1.35rem; font-weight:900; color:#0284c7;">USD ${second.avgFreight.toLocaleString('pt-BR')}</div>
                     </div>
                     <div>
@@ -514,12 +759,12 @@ function renderAgentPodium(stats, routeMatchups) {
                     </div>
                 </div>
                 <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(148,163,184,0.3); display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:0.75rem; color:var(--text-secondary);">${second.quotedRoutesCount} rotas analisadas</span>
-                    <button class="btn btn-sm btn-secondary" onclick="window.filterByAgentInMainPortal('${second.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Filtrar</button>
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${second.matchupsParticipated} rotas analisadas</span>
+                    <button class="btn btn-sm btn-secondary" onclick="window.filterByAgentInMainPortal('${second.agent}')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Filtrar no Portal</button>
                 </div>
             </div>` : ''}
 
-            <!-- 💰 Maior Oportunidade de Spread / Economia -->
+            <!-- 💰 Maior Oportunidade de Spread -->
             <div class="card" style="background:linear-gradient(135deg, rgba(16,185,129,0.08), rgba(5,150,105,0.03)); border:1.5px solid #10b981; border-radius:14px; padding:18px; position:relative;">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <div>
@@ -529,7 +774,7 @@ function renderAgentPodium(stats, routeMatchups) {
                         <h3 style="font-size:1.1rem; font-weight:800; color:var(--text-primary); margin:8px 0 2px 0;">
                             ${maxSpreadRoute ? maxSpreadRoute.key.split('[')[0] : 'Ningbo → Santos'}
                         </h3>
-                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">Vencedor: <strong>${maxSpreadRoute ? maxSpreadRoute.winner : 'South Cargo'}</strong></p>
+                        <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">Melhor Tarifa: <strong>${maxSpreadRoute ? maxSpreadRoute.bestAgent : 'N/A'}</strong></p>
                     </div>
                     <div style="font-size:2rem; line-height:1;">💰</div>
                 </div>
@@ -548,7 +793,7 @@ function renderAgentPodium(stats, routeMatchups) {
                     </div>
                 </div>
                 <div style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(16,185,129,0.3); display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:0.75rem; color:var(--text-secondary);">${maxSpreadRoute ? maxSpreadRoute.quotes.length : 0} agentes disputando esta rota</span>
+                    <span style="font-size:0.75rem; color:var(--text-secondary);">${maxSpreadRoute ? maxSpreadRoute.quotes.length : 0} cotações comparadas</span>
                     <button class="btn btn-sm btn-primary" onclick="window.switchAgentView('matchups')" style="padding:4px 10px; font-size:0.75rem; border-radius:6px; cursor:pointer;">Ver Disputa</button>
                 </div>
             </div>
@@ -556,12 +801,15 @@ function renderAgentPodium(stats, routeMatchups) {
     `;
 }
 
-// ── RENDER VIEW 1: SCORECARDS DOS AGENTES ─────────────────────────────────
-function renderAgentCardsGrid(agentStats) {
+// ── RENDER VIEW 1: SCORECARDS DOS AGENTES (TARIFAS) ───────────────────────
+function renderAgentCardsGrid(agentStats, opStatsMap) {
     const gridEl = document.getElementById('agent-cards-grid');
     if (!gridEl) return;
 
-    const list = Object.values(agentStats).sort((a, b) => a.avgFreight - b.avgFreight);
+    const list = Object.values(agentStats).sort((a, b) => {
+        if (b.lowestCount !== a.lowestCount) return b.lowestCount - a.lowestCount;
+        return a.avgFreight - b.avgFreight;
+    });
 
     if (list.length === 0) {
         gridEl.innerHTML = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">Nenhum agente localizado.</div>`;
@@ -574,31 +822,43 @@ function renderAgentCardsGrid(agentStats) {
             `<span style="background:var(--bg-secondary); border:1px solid var(--card-border); padding:2px 6px; border-radius:4px; font-size:0.68rem; font-weight:600; color:var(--text-secondary);">${c}</span>`
         ).join(' ');
 
-        const topWonRoutesHtml = st.wonRoutes.slice(0, 2).map(r => `
+        const topRoutesHtml = st.bestRoutes.slice(0, 2).map(r => `
             <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; padding:4px 0; border-bottom:1px solid rgba(0,0,0,0.03);">
                 <span style="color:var(--text-secondary); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;">${r.route.split('[')[0]}</span>
                 <span style="font-weight:700; color:#16a34a;">USD ${r.price.toLocaleString('pt-BR')}</span>
             </div>
         `).join('') || '<div style="font-size:0.72rem; color:var(--text-muted); font-style:italic; padding:4px 0;">Nenhuma rota com menor preço absoluto</div>';
 
+        // Check if agent also has operational processes
+        const opData = opStatsMap ? opStatsMap[st.agent] : null;
+        const opBadgeHtml = opData ? 
+            `<div style="font-size:0.7rem; color:#10b981; font-weight:700; margin-top:6px; display:flex; align-items:center; gap:4px;">
+                <i data-lucide="check-circle" style="width:12px;height:12px;"></i> ${opData.count} processos operacionais fechados
+            </div>` : 
+            `<div style="font-size:0.7rem; color:var(--text-muted); font-style:italic; margin-top:6px;">
+                📋 Apenas tarifário cotado (0 processos fechados)
+            </div>`;
+
         return `
             <div class="card agent-pro-card" style="padding:18px; border-radius:14px; border:1px solid var(--card-border); background:var(--card-bg); display:flex; flex-direction:column; justify-content:space-between; transition:transform 0.2s, box-shadow 0.2s;">
                 <div>
                     <!-- Header -->
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                         <div style="display:flex; align-items:center; gap:8px;">
                             <span style="width:28px; height:28px; border-radius:50%; background:var(--bg-secondary); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.85rem; color:var(--text-primary);">${rankMedal}</span>
                             <h4 style="margin:0; font-size:1.02rem; font-weight:800; color:var(--text-primary); letter-spacing:-0.2px;">${st.agent}</h4>
                         </div>
-                        <span style="background:${st.winRate >= 30 ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.1)'}; color:${st.winRate >= 30 ? '#10b981' : '#3b82f6'}; font-weight:700; font-size:0.72rem; padding:3px 8px; border-radius:20px;">
-                            ${st.wins} vitórias (${st.winRate}%)
+                        <span style="background:${st.competitivenessRate >= 30 ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.1)'}; color:${st.competitivenessRate >= 30 ? '#10b981' : '#3b82f6'}; font-weight:700; font-size:0.72rem; padding:3px 8px; border-radius:20px;">
+                            Menor frete em ${st.lowestCount} rotas (${st.competitivenessRate}%)
                         </span>
                     </div>
 
+                    ${opBadgeHtml}
+
                     <!-- Metrics Price & Free Time -->
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:var(--bg-secondary); padding:10px 12px; border-radius:10px; margin-bottom:12px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:var(--bg-secondary); padding:10px 12px; border-radius:10px; margin:10px 0 12px 0;">
                         <div>
-                            <span style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; display:block;">Compra Média</span>
+                            <span style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; display:block;">Compra Média Ofertada</span>
                             <span style="font-size:1.2rem; font-weight:900; color:#16a34a;">USD ${st.avgFreight.toLocaleString('pt-BR')}</span>
                         </div>
                         <div>
@@ -607,21 +867,21 @@ function renderAgentCardsGrid(agentStats) {
                         </div>
                     </div>
 
-                    <!-- Win Rate Visual Progress Bar -->
+                    <!-- Competitiveness Visual Progress Bar (Guaranteed 0-100%) -->
                     <div style="margin-bottom:12px;">
                         <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">
-                            <span>Dominância em Rotas</span>
-                            <span>${st.wins} de ${st.quotedRoutesCount} rotas cotadas</span>
+                            <span>Índice de Menor Frete Ofertado</span>
+                            <span>${st.lowestCount} de ${st.matchupsParticipated} rotas ofertadas</span>
                         </div>
                         <div style="height:6px; background:var(--bg-secondary); border-radius:3px; overflow:hidden;">
-                            <div style="width:${Math.min(100, Math.max(5, st.winRate))}%; height:100%; background:linear-gradient(90deg, #10b981, #0284c7); border-radius:3px;"></div>
+                            <div style="width:${Math.min(100, Math.max(3, st.competitivenessRate))}%; height:100%; background:linear-gradient(90deg, #10b981, #0284c7); border-radius:3px;"></div>
                         </div>
                     </div>
 
-                    <!-- Best Winning Routes -->
+                    <!-- Best Routes -->
                     <div style="margin-bottom:14px;">
                         <span style="font-size:0.68rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px; display:block; margin-bottom:4px;">Rotas mais competitivas:</span>
-                        ${topWonRoutesHtml}
+                        ${topRoutesHtml}
                     </div>
                 </div>
 
@@ -654,7 +914,7 @@ function renderRouteMatchupsView(routeMatchups) {
 
     container.innerHTML = list.map(m => {
         const quotesBars = m.quotes.map(q => {
-            const isWinner = q.agente === m.winner;
+            const isWinner = q.agente === m.bestAgent;
             const diff = q.frete - m.bestPrice;
             const barWidthPercent = Math.max(15, Math.min(100, Math.round((m.bestPrice / q.frete) * 100)));
             const barColor = isWinner ? '#10b981' : diff <= 200 ? '#3b82f6' : '#f59e0b';
@@ -662,7 +922,7 @@ function renderRouteMatchupsView(routeMatchups) {
             return `
                 <div style="display:grid; grid-template-columns: 180px 1fr 140px; gap:12px; align-items:center; padding:6px 0;">
                     <div style="display:flex; align-items:center; gap:6px;">
-                        ${isWinner ? '<span style="font-size:0.9rem;">👑</span>' : '<span style="width:16px;"></span>'}
+                        ${isWinner ? '<span style="font-size:0.85rem; color:#10b981; font-weight:800;">★</span>' : '<span style="width:16px;"></span>'}
                         <span style="font-size:0.82rem; font-weight:${isWinner ? '800' : '600'}; color:${isWinner ? '#10b981' : 'var(--text-primary)'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                             ${q.agente}
                         </span>
@@ -679,7 +939,7 @@ function renderRouteMatchupsView(routeMatchups) {
                         <span style="font-size:0.9rem; font-weight:800; color:${isWinner ? '#10b981' : 'var(--text-primary)'};">
                             USD ${q.frete.toLocaleString('pt-BR')}
                         </span>
-                        ${diff > 0 ? `<span style="font-size:0.72rem; color:#ef4444; font-weight:600;">+USD ${diff.toLocaleString('pt-BR')}</span>` : `<span style="font-size:0.72rem; color:#10b981; font-weight:700; background:rgba(16,185,129,0.12); padding:1px 6px; border-radius:10px;">Melhor</span>`}
+                        ${diff > 0 ? `<span style="font-size:0.72rem; color:#ef4444; font-weight:600;">+USD ${diff.toLocaleString('pt-BR')}</span>` : `<span style="font-size:0.72rem; color:#10b981; font-weight:700; background:rgba(16,185,129,0.12); padding:1px 6px; border-radius:10px;">Menor</span>`}
                     </div>
                 </div>
             `;
@@ -698,7 +958,7 @@ function renderRouteMatchupsView(routeMatchups) {
                     </div>
                     <div style="display:flex; align-items:center; gap:14px;">
                         <span style="font-size:0.78rem; color:var(--text-secondary);">
-                            Vencedor: <strong style="color:#10b981;">${m.winner}</strong> (USD ${m.bestPrice.toLocaleString('pt-BR')})
+                            Melhor Tarifa: <strong style="color:#10b981;">${m.bestAgent}</strong> (USD ${m.bestPrice.toLocaleString('pt-BR')})
                         </span>
                         ${m.spread > 0 ? `
                         <span style="background:rgba(16,185,129,0.15); color:#065f46; font-weight:800; font-size:0.75rem; padding:4px 10px; border-radius:8px;">
@@ -720,7 +980,10 @@ function renderAgentLeaderboardTable(agentStats) {
     const tbody = document.getElementById('agent-leaderboard-tbody');
     if (!tbody) return;
 
-    const list = Object.values(agentStats).sort((a, b) => a.avgFreight - b.avgFreight);
+    const list = Object.values(agentStats).sort((a, b) => {
+        if (b.lowestCount !== a.lowestCount) return b.lowestCount - a.lowestCount;
+        return a.avgFreight - b.avgFreight;
+    });
 
     if (list.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding:30px; color:var(--text-muted);">Nenhum dado encontrado.</td></tr>`;
@@ -739,11 +1002,11 @@ function renderAgentLeaderboardTable(agentStats) {
                     USD ${st.avgFreight.toLocaleString('pt-BR')}
                 </td>
                 <td class="text-center" style="padding:10px;">
-                    <span style="background:${st.winRate >= 30 ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.1)'}; color:${st.winRate >= 30 ? '#10b981' : '#3b82f6'}; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px;">
-                        ${st.winRate}% (${st.wins} vitórias)
+                    <span style="background:${st.competitivenessRate >= 30 ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.1)'}; color:${st.competitivenessRate >= 30 ? '#10b981' : '#3b82f6'}; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px;">
+                        ${st.competitivenessRate}% (${st.lowestCount} rotas com menor preço)
                     </span>
                 </td>
-                <td class="text-center" style="padding:10px; font-weight:600; color:var(--text-secondary);">${st.quotedRoutesCount} rotas</td>
+                <td class="text-center" style="padding:10px; font-weight:600; color:var(--text-secondary);">${st.matchupsParticipated} rotas</td>
                 <td class="text-center" style="padding:10px; font-size:0.78rem; color:var(--text-muted);">${carriersText}</td>
                 <td class="text-center" style="padding:10px;">
                     <button class="btn btn-sm btn-outline" onclick="window.filterByAgentInMainPortal('${st.agent}')" style="padding:4px 12px; font-size:0.75rem; border-radius:6px; cursor:pointer;">
@@ -755,6 +1018,90 @@ function renderAgentLeaderboardTable(agentStats) {
     }).join('');
 }
 
+// ── POPULATE CONTAINER FILTER ─────────────────────────────────────────────
+function populateContainerFilter(porAgente) {
+    const sel = document.getElementById('agent-dash-container-filter');
+    if (!sel || sel.children.length > 2) return;
+    const currentVal = sel.value;
+    const containers = new Set();
+    for (const rows of Object.values(porAgente)) {
+        rows.forEach(r => { if (r.container) containers.add(r.container.toUpperCase()); });
+    }
+    let html = '<option value="">Todos Contêineres</option>';
+    Array.from(containers).sort().forEach(c => { html += `<option value="${c}">${c}</option>`; });
+    sel.innerHTML = html;
+    if (currentVal) sel.value = currentVal;
+}
+
+// ── MAIN RENDER FUNCTION ──────────────────────────────────────────────────
+function renderDashboardTab() {
+    if (window.db && window.db.snapshots.length === 0 && window.BUNDLED_SNAPSHOTS) {
+        window.db.snapshots = window.BUNDLED_SNAPSHOTS.filter(s => isValidAgentName(s.agent));
+    }
+
+    const searchVal = (document.getElementById('agent-dash-search')?.value || '').trim().toUpperCase();
+    const containerFilterVal = (document.getElementById('agent-dash-container-filter')?.value || '').toUpperCase();
+    const obsFilter = document.getElementById('agent-dash-obs-filter')?.value || 'all';
+
+    // 1. Process Operational Data (Real ERP Closures)
+    const opList = getOperationalDataForDashboard();
+    const opStats = computeOperationalAgentStats(opList, searchVal);
+    const opStatsMap = {};
+    opStats.forEach(st => { opStatsMap[st.agent] = st; });
+
+    // Render Operational View
+    renderOperationalView(opStats);
+
+    // 2. Process Tariff Snapshots & Benchmarking Data
+    const grouped = getGroupedAgentSnapshots();
+    const porAgente = {};
+    const agentsList = [];
+
+    for (const agent in grouped) {
+        if (!isValidAgentName(agent)) continue;
+        if (grouped[agent].length > 0) {
+            const rows = getSnapshotDataSmart(grouped[agent][0]);
+            if (rows.length > 0) {
+                agentsList.push(agent);
+                porAgente[agent] = rows;
+            }
+        }
+    }
+    agentsList.sort();
+
+    populateContainerFilter(porAgente);
+
+    const filteredPorAgente = {};
+    for (const [ag, rows] of Object.entries(porAgente)) {
+        let f = rows;
+        if (containerFilterVal) f = f.filter(r => (r.container || '').toUpperCase() === containerFilterVal);
+        f = filterRowsByObs(f, obsFilter);
+        
+        if (searchVal) {
+            const matchesAgent = ag.includes(searchVal);
+            if (!matchesAgent) {
+                f = f.filter(r => (r.origem || '').toUpperCase().includes(searchVal) || (r.destino || '').toUpperCase().includes(searchVal));
+            }
+        }
+
+        if (f.length > 0) filteredPorAgente[ag] = f;
+    }
+
+    const routeMatchups = computeRouteMatchups(filteredPorAgente);
+    const agentStats = computeAgentStats(filteredPorAgente, routeMatchups);
+
+    // Render Tariff Views
+    renderAgentPodium(agentStats, routeMatchups);
+    renderAgentCardsGrid(agentStats, opStatsMap);
+    renderRouteMatchupsView(routeMatchups);
+    renderAgentLeaderboardTable(agentStats);
+
+    // Set correct active view state
+    window.switchAgentView(window.currentAgentView || 'operational');
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
 // ── INITIALIZATION ────────────────────────────────────────────────────────
 function initDashboard() {
     ['agent-dash-container-filter', 'agent-dash-obs-filter'].forEach(id => {
@@ -763,7 +1110,6 @@ function initDashboard() {
     });
 }
 
-// Auto-run when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initDashboard();

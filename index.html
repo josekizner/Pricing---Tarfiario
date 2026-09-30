@@ -1421,19 +1421,22 @@ Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></text
                             <span style="font-size:1.4rem;">🏆</span>
                             <h2 style="font-size:1.15rem; font-weight:800; color:var(--text-primary); margin:0;">Inteligência de Agentes & Benchmarking de Fretes</h2>
                         </div>
-                        <p style="font-size:0.78rem; color:var(--text-muted); margin:3px 0 0 0;">Análise comparativa direta de cotações, dominância por rota e economia gerada na Ásia</p>
+                        <p style="font-size:0.78rem; color:var(--text-muted); margin:3px 0 0 0;">Volume operacional de fechamentos (ERP Skychart) & benchmarking comparativo de tarifas de frete na Ásia</p>
                     </div>
 
                     <!-- Quick View Switcher Tabs -->
                     <div class="agent-view-switcher" style="display:flex; background:var(--bg-secondary); padding:4px; border-radius:10px; border:1px solid var(--card-border); gap:4px;">
-                        <button type="button" class="agent-tab-btn active" id="btn-agent-view-cards" onclick="window.switchAgentView('cards')" style="padding:7px 15px; border-radius:7px; border:none; font-size:0.8rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; background:var(--card-bg); color:var(--primary); box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                            <i data-lucide="layout-grid" style="width:14px;height:14px;"></i> Cards dos Agentes
+                        <button type="button" class="agent-tab-btn active" id="btn-agent-view-operational" onclick="window.switchAgentView('operational')" style="padding:7px 15px; border-radius:7px; border:none; font-size:0.8rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; background:var(--card-bg); color:var(--primary); box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                            <i data-lucide="ship" style="width:14px;height:14px;"></i> 🚢 Fechamento Real (Operacional)
+                        </button>
+                        <button type="button" class="agent-tab-btn" id="btn-agent-view-cards" onclick="window.switchAgentView('cards')" style="padding:7px 15px; border-radius:7px; border:none; font-size:0.8rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; background:transparent; color:var(--text-secondary);">
+                            <i data-lucide="layout-grid" style="width:14px;height:14px;"></i> 📊 Competitividade de Tarifas
                         </button>
                         <button type="button" class="agent-tab-btn" id="btn-agent-view-matchups" onclick="window.switchAgentView('matchups')" style="padding:7px 15px; border-radius:7px; border:none; font-size:0.8rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; background:transparent; color:var(--text-secondary);">
-                            <i data-lucide="swords" style="width:14px;height:14px;"></i> Disputa por Rota
+                            <i data-lucide="swords" style="width:14px;height:14px;"></i> ⚔️ Disputa por Rota
                         </button>
                         <button type="button" class="agent-tab-btn" id="btn-agent-view-ranking" onclick="window.switchAgentView('ranking')" style="padding:7px 15px; border-radius:7px; border:none; font-size:0.8rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; background:transparent; color:var(--text-secondary);">
-                            <i data-lucide="trophy" style="width:14px;height:14px;"></i> Ranking Executivo
+                            <i data-lucide="trophy" style="width:14px;height:14px;"></i> 🏆 Tabela de Tarifas
                         </button>
                     </div>
                 </div>
@@ -1442,7 +1445,7 @@ Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></text
                 <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:14px; padding-top:14px; border-top:1px solid var(--card-border);">
                     <div style="flex:1 1 240px; position:relative;">
                         <i data-lucide="search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--text-muted);"></i>
-                        <input type="text" id="agent-dash-search" placeholder="🔍 Filtrar agente ou porto (ex: South Cargo, Ningbo, Santos)..." oninput="window.renderDashboardTab()" style="padding-left:36px; height:38px; border-radius:8px; width:100%; font-size:0.82rem;">
+                        <input type="text" id="agent-dash-search" placeholder="🔍 Filtrar agente ou porto (ex: Shenzhen Q&R, Zenith, Santos, Ningbo)..." oninput="window.renderDashboardTab()" style="padding-left:36px; height:38px; border-radius:8px; width:100%; font-size:0.82rem;">
                     </div>
                     <div style="width:170px;">
                         <select id="agent-dash-container-filter" style="height:38px; border-radius:8px; font-size:0.82rem;">
@@ -1464,13 +1467,23 @@ Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></text
                 </div>
             </div>
 
-            <!-- Hall da Fama / Podium Section -->
-            <div id="agent-podium-section" style="margin-bottom:24px;">
+            <!-- VIEW 0: Fechamento Real (Operacional Skychart) -->
+            <div id="agent-view-operational" class="agent-view-content" style="display:block;">
+                <div id="agent-operational-podium-section" style="margin-bottom:24px;"></div>
+                <div id="agent-operational-cards-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:18px;"></div>
+            </div>
+
+            <!-- Hall da Fama / Podium Section (Tarifas) -->
+            <div id="agent-podium-section" style="margin-bottom:24px; display:none;">
                 <!-- Populated dynamically -->
             </div>
 
-            <!-- VIEW 1: Scorecards dos Agentes em Grid -->
-            <div id="agent-view-cards" class="agent-view-content">
+            <!-- VIEW 1: Scorecards dos Agentes em Grid (Tarifas) -->
+            <div id="agent-view-cards" class="agent-view-content" style="display:none;">
+                <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius:10px; padding:10px 16px; margin-bottom:18px; font-size:0.8rem; color:var(--text-secondary); display:flex; align-items:center; gap:8px;">
+                    <i data-lucide="info" style="width:16px; height:16px; color:#3b82f6; flex-shrink:0;"></i>
+                    <span><strong>Nota de Pricing:</strong> Esta seção analisa cotações e tarifários recebidos nas planilhas de agentes (potencial de compra). Para ver o volume real de cargas fechadas na Mond, utilize a aba <strong>Fechamento Real (Operacional)</strong>.</span>
+                </div>
                 <div id="agent-cards-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:18px;">
                     <!-- Agent Cards injected here -->
                 </div>
@@ -1483,13 +1496,13 @@ Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></text
                 </div>
             </div>
 
-            <!-- VIEW 3: Ranking Executivo & Timeline -->
+            <!-- VIEW 3: Ranking Executivo de Tarifas -->
             <div id="agent-view-ranking" class="agent-view-content" style="display:none;">
                 <div class="card" style="border-radius:12px; overflow:hidden; border:1px solid var(--card-border);">
                     <div class="card-header" style="background:var(--bg-secondary); padding:14px 18px; border-bottom:1px solid var(--card-border);">
                         <h3 style="margin:0; font-size:0.95rem; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
                             <i data-lucide="award" style="color:var(--primary); width:18px; height:18px;"></i>
-                            Classificação Geral dos Agentes
+                            Benchmarking de Menor Tarifa por Agente
                         </h3>
                     </div>
                     <div class="table-responsive">
@@ -1499,7 +1512,7 @@ Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></text
                                     <th style="width:60px;" class="text-center">#</th>
                                     <th>Agente</th>
                                     <th class="text-right">Frete Médio Compra</th>
-                                    <th class="text-center">Taxa de Vitória</th>
+                                    <th class="text-center">Menor Frete (%)</th>
                                     <th class="text-center">Rotas Ofertadas</th>
                                     <th class="text-center">Armadores Parceiros</th>
                                     <th class="text-center" style="width:160px;">Ação</th>
@@ -1633,13 +1646,13 @@ Dica: clique em "Carregar Exemplo" para ver o formato de texto esperado.'></text
     <script src="tariff_engine.js"></script>
     <script src="MOND_engine_v2.js"></script>
     <script src="MOND_dashboard.js"></script>
-    <script src="snapshots_bundle.js?v=20260930_1430"></script>
-    <script src="dashboard_controller.js?v=20260930_1430"></script>
-    <script src="llm_extract.js?v=20260930_1430"></script>
-    <script src="tariff_builder.js?v=20260930_1430"></script>
+    <script src="snapshots_bundle.js?v=20260930_1445"></script>
+    <script src="dashboard_controller.js?v=20260930_1445"></script>
+    <script src="llm_extract.js?v=20260930_1445"></script>
+    <script src="tariff_builder.js?v=20260930_1445"></script>
 
     <!-- Script Application -->
-    <script src="app.js?v=20260930_1430"></script>
+    <script src="app.js?v=20260930_1445"></script>
 
     <!-- Patch: filtrar embarcados/cancelados via blacklist do JSON cru -->
     <script>
