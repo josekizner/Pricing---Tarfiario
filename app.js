@@ -1554,6 +1554,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         aberturaAteInput.addEventListener('change', () => { currentPage = 1; applyFilters(); updateDashboardCards(); });
     }
     
+    // Initialize item type (all / operational / commercial) filter for Oper. + Comercial
+    const filterItemType = document.getElementById('filter-item-type');
+    if (filterItemType) {
+        filterItemType.addEventListener('change', () => {
+            currentPage = 1;
+            applyFilters();
+            updateDashboardCards();
+        });
+    }
+
     // Initialize fase multi-select filter
     initFaseFilter();
     
@@ -1572,6 +1582,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (btn.getAttribute('data-db') === 'apiAll') btn.classList.add('active');
             else btn.classList.remove('active');
         });
+        const filterGroupItemType = document.getElementById('filter-group-item-type');
+        if (filterGroupItemType) filterGroupItemType.style.display = 'block';
     }
 
     updateDashboardCards();
@@ -1910,6 +1922,10 @@ function setupEventListeners() {
             // Toggle Situação filter (only for operational/apiAll)
             const filterGroupSituacao = document.getElementById('filter-group-situacao');
             if (filterGroupSituacao) filterGroupSituacao.style.display = isOperationalTab ? 'block' : 'none';
+            
+            // Toggle Item Type filter (only for apiAll)
+            const filterGroupItemType = document.getElementById('filter-group-item-type');
+            if (filterGroupItemType) filterGroupItemType.style.display = (activeDb === 'apiAll') ? 'block' : 'none';
             
             // Toggle Cliente column visibility
             document.querySelectorAll('.col-cliente').forEach(el => {
@@ -3497,6 +3513,13 @@ function applyFilters() {
             if (analysisBookingFilter === 'sem' && rateHasBooking) return false;
         }
 
+        // Item Type Filter (All / Operational / Commercial) on Oper. + Comercial tab
+        const itemTypeEl = document.getElementById('filter-item-type');
+        if (activeDb === 'apiAll' && itemTypeEl && itemTypeEl.value !== 'all') {
+            if (itemTypeEl.value === 'operational' && rate.source !== 'operational') return false;
+            if (itemTypeEl.value === 'commercial' && rate.source !== 'commercial') return false;
+        }
+
         // Status/Análise filter
         if (!filterByStatus(rate)) return false;
 
@@ -3740,23 +3763,23 @@ function renderTable() {
         // Source badge (Rate, Space, Operational or Commercial)
         let sourceHtml = "";
         if (rate.source === 'space') {
-            sourceHtml = `<div style="margin-top: 4px; display: flex; gap: 4px; align-items: center;">
-                             <span class="source-tag source-space">Space</span>
-                             <span class="badge badge-info" style="padding: 1px 4px; font-size: 0.6rem; line-height: 1.2;">${rate.qtdSpace || 1} un</span>
+            sourceHtml = `<div style="margin-top: 5px; display: flex; gap: 5px; align-items: center;">
+                             <span class="source-tag source-space" style="font-weight: 700; font-size: 0.68rem; padding: 2px 7px;">📦 SPACE</span>
+                             <span class="badge badge-info" style="padding: 2px 5px; font-size: 0.65rem; line-height: 1.2;">${rate.qtdSpace || 1} un</span>
                            </div>`;
         } else if (rate.source === 'operational') {
-            sourceHtml = `<div style="margin-top: 4px; display: flex; gap: 4px; align-items: center;">
-                             <span class="source-tag source-operational">Operação</span>
-                             <span class="badge badge-warning" style="padding: 1px 4px; font-size: 0.6rem; line-height: 1.2;">${rate.processo || 'Processo'}</span>
+            sourceHtml = `<div style="margin-top: 5px; display: flex; gap: 5px; align-items: center;">
+                             <span class="badge" style="background: rgba(16, 185, 129, 0.16); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.68rem; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.3px;">🚢 PROCESSO</span>
+                             <span class="badge badge-warning" style="padding: 2px 6px; font-size: 0.68rem; line-height: 1.2; font-weight: 600;">${rate.processo || 'Processo'}</span>
                            </div>`;
         } else if (rate.source === 'commercial') {
             const ofertaNum = rate.processo || 'N/A';
-            sourceHtml = `<div style="margin-top: 4px; display: flex; gap: 4px; align-items: center;">
-                             <span class="source-tag source-commercial">Oferta</span>
-                             <span class="oferta-num" style="font-family: 'Outfit', monospace; font-size: 0.82rem; font-weight: 700; color: var(--primary-light); cursor: pointer; user-select: all; letter-spacing: 0.3px;" title="Clique para copiar" onclick="navigator.clipboard.writeText('${ofertaNum}'); this.style.color='#10b981'; setTimeout(()=>this.style.color='', 800);">${ofertaNum}</span>
+            sourceHtml = `<div style="margin-top: 5px; display: flex; gap: 5px; align-items: center;">
+                             <span class="badge" style="background: rgba(139, 92, 246, 0.16); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.4); font-weight: 700; font-size: 0.68rem; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.3px;">📋 COTAÇÃO</span>
+                             <span class="oferta-num" style="font-family: 'Outfit', monospace; font-size: 0.82rem; font-weight: 700; color: var(--primary-light); cursor: pointer; user-select: all; letter-spacing: 0.3px;" title="Clique para copiar oferta" onclick="navigator.clipboard.writeText('${ofertaNum}'); this.style.color='#10b981'; setTimeout(()=>this.style.color='', 800);">OF. ${ofertaNum}</span>
                            </div>`;
         } else {
-            sourceHtml = `<div style="margin-top: 4px;"><span class="source-tag source-rate">Tarifa</span></div>`;
+            sourceHtml = `<div style="margin-top: 5px;"><span class="source-tag source-rate" style="font-weight: 700;">🏷️ TARIFA</span></div>`;
         }
 
         let valorCellHtml = "";
@@ -3790,7 +3813,10 @@ function renderTable() {
             else if (status === "Reprovado" || status === "Perdido") statusBadgeClass = "badge-danger";
             else if (status === "Em Aberto" || status === "Pendente") statusBadgeClass = "badge-warning";
             
-            freetimeOrStatusHtml = `<span class="badge ${statusBadgeClass}" style="padding: 4px 8px; font-size: 0.75rem;">${status}</span>`;
+            freetimeOrStatusHtml = `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                <span class="badge ${statusBadgeClass}" style="padding: 3px 7px; font-size: 0.72rem; font-weight:600;">${status}</span>
+                <span style="font-size:0.6rem; color:var(--text-muted);">Status Cot.</span>
+            </div>`;
         } else {
             freetimeOrStatusHtml = `<span class="freetime-badge">${rate.freetime || 0}d</span>`;
         }
@@ -3804,6 +3830,12 @@ function renderTable() {
         // Phase display
         const phase = getProcessPhase(rate);
         const phaseInfo = getPhaseDisplay(phase);
+        let phaseCellHtml = '';
+        if (rate.source === 'commercial') {
+            phaseCellHtml = `<span class="badge" style="background: rgba(139, 92, 246, 0.12); color: #a78bfa; font-weight: 600; font-size: 0.68rem; padding: 3px 7px; border-radius: 6px; white-space: nowrap;">Cotação</span>`;
+        } else {
+            phaseCellHtml = `<span class="badge" style="background: ${phaseInfo.bg}; color: ${phaseInfo.color}; font-weight: 600; font-size: 0.7rem; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">${phaseInfo.label}</span>`;
+        }
         
         row.innerHTML = `
             <td class="text-center" style="vertical-align: middle; width: 36px; padding: 4px;" onclick="event.stopPropagation();">
@@ -3831,7 +3863,7 @@ function renderTable() {
             <td class="col-etd text-center" style="${etdEtaDisplay}">${rate.previsaoEmbarque ? rate.previsaoEmbarque.split('-').reverse().slice(0,2).join('/') : '-'}</td>
             <td class="col-eta text-center" style="${etdEtaDisplay}">${rate.previsaoAtracacao ? rate.previsaoAtracacao.split('-').reverse().slice(0,2).join('/') : '-'}</td>
             <td class="col-fase text-center" style="${etdEtaDisplay}">
-                <span class="badge" style="background: ${phaseInfo.bg}; color: ${phaseInfo.color}; font-weight: 600; font-size: 0.7rem; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">${phaseInfo.label}</span>
+                ${phaseCellHtml}
             </td>
             <td class="obs-cell">${obsHtml}</td>
             <td class="text-center">
@@ -4692,15 +4724,31 @@ function updateDashboardCards() {
     if (activeDb === 'operational' || activeDb === 'commercial' || activeDb === 'apiAll') {
         const data = (filteredRates.length > 0 ? filteredRates : activeDataset).filter(r => !r._excluded);
         const isCommercial = activeDb === 'commercial';
-        const typeLabel = activeDb === 'apiAll' ? 'Processos' : (isCommercial ? 'Ofertas' : 'Processos');
+        const isApiAll = activeDb === 'apiAll';
+        const typeLabel = isApiAll ? 'Registros' : (isCommercial ? 'Ofertas' : 'Processos');
 
         // Card 1: Total processes/offers + total containers
         let totalContainers = 0;
-        data.forEach(r => { totalContainers += getContainerInfo(r).qty; });
+        let countOps = 0;
+        let countCom = 0;
+        data.forEach(r => { 
+            totalContainers += getContainerInfo(r).qty;
+            if (r.source === 'operational') countOps++;
+            else if (r.source === 'commercial') countCom++;
+        });
         
-        if (card1Label) card1Label.textContent = `${typeLabel} Selecionados`;
-        cheapestVal.innerText = `${data.length} ${typeLabel}`;
-        cheapestRoute.innerText = `${totalContainers} containers no total`;
+        if (card1Label) {
+            if (isApiAll) card1Label.textContent = `Registros Selecionados`;
+            else card1Label.textContent = `${typeLabel} Selecionados`;
+        }
+        
+        if (isApiAll) {
+            cheapestVal.innerText = `${data.length} Registros`;
+            cheapestRoute.innerText = `${totalContainers} cntrs (${countOps} Ops | ${countCom} Cot.)`;
+        } else {
+            cheapestVal.innerText = `${data.length} ${typeLabel}`;
+            cheapestRoute.innerText = `${totalContainers} containers no total`;
+        }
 
         // Card 2: Principal Client (by container volume)
         const clientCount = {};
@@ -4751,16 +4799,27 @@ function updateDashboardCards() {
 
         // Card 4: Total no banco
         if (card4Label) card4Label.textContent = 'Banco de Dados Ativo';
-        summaryTotal.innerText = `${activeDataset.length} ${typeLabel}`;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const recentItems = activeDataset.filter(r => {
-            if (!r.inicio) return false;
-            const d = new Date(r.inicio + "T00:00:00");
-            const diff = Math.abs(Math.ceil((today - d) / (1000 * 60 * 60 * 24)));
-            return diff <= 30;
-        });
-        summaryValidity.innerText = `${recentItems.length} abertos nos últimos 30d`;
+        if (isApiAll) {
+            let dbOps = 0;
+            let dbCom = 0;
+            activeDataset.forEach(r => {
+                if (r.source === 'operational') dbOps++;
+                else if (r.source === 'commercial') dbCom++;
+            });
+            summaryTotal.innerText = `${activeDataset.length} Registros`;
+            summaryValidity.innerText = `${dbOps.toLocaleString('pt-BR')} Processos | ${dbCom.toLocaleString('pt-BR')} Cotações`;
+        } else {
+            summaryTotal.innerText = `${activeDataset.length} ${typeLabel}`;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const recentItems = activeDataset.filter(r => {
+                if (!r.inicio) return false;
+                const d = new Date(r.inicio + "T00:00:00");
+                const diff = Math.abs(Math.ceil((today - d) / (1000 * 60 * 60 * 24)));
+                return diff <= 30;
+            });
+            summaryValidity.innerText = `${recentItems.length} abertos nos últimos 30d`;
+        }
 
         return;
     }

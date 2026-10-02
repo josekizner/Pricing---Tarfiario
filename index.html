@@ -358,7 +358,11 @@
                             <i data-lucide="chevron-down" style="width:14px;height:14px"></i>
                         </button>
                         <div class="validade-dropdown hidden" id="status-dropdown">
-                            <div class="validade-dropdown-header">
+                            <div class="validade-dropdown-header" style="flex-wrap: wrap; gap: 4px;">
+                                <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:4px;">
+                                    <span style="font-size:0.7rem; color:var(--text-muted); font-weight:600;">Total no banco</span>
+                                    <span style="font-size:0.65rem; color:var(--primary-light); background:rgba(79,140,255,0.1); padding:1px 6px; border-radius:4px;">Base Geral</span>
+                                </div>
                                 <button type="button" class="btn-select-all" id="status-select-all">Marcar Todos</button>
                                 <button type="button" class="btn-select-all" id="status-deselect-all">Desmarcar Todos</button>
                             </div>
@@ -366,6 +370,14 @@
                                 <!-- Populated dynamically -->
                             </div>
                         </div>
+                    </div>
+                    <div class="filter-group" id="filter-group-item-type" style="display: none;">
+                        <label for="filter-item-type">Tipo Registro</label>
+                        <select id="filter-item-type" style="padding: 8px 10px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-primary); font-size: 0.8rem; height: 38px; cursor: pointer;">
+                            <option value="all" selected>Todos (Ops + Cotações)</option>
+                            <option value="operational">🚢 Apenas Processos</option>
+                            <option value="commercial">📋 Apenas Cotações</option>
+                        </select>
                     </div>
                     <div class="filter-group" style="display:none">
                         <select id="filter-validade">
